@@ -2,11 +2,11 @@
 
 On a laptop with two or more graphics cards the desktop is drawn by one of them (the default one) and the other can be
 asked to render an app (the "PRIME render offload" of the drivers). Choosing a GPU here means: the apps you start
-render on that card. It is done the way GNOME's "Launch using Discrete Graphics Card" does it, with environment
-variables, and it needs no root:
+render on that card. It is done the way GNOME's "Launch using Discrete Graphics Card" (Plasma's "Run using dedicated
+graphics card") does it, with environment variables, and it needs no root:
 
-  * ~/.config/environment.d/60-asus-dial-gpu.conf holds them for every future login (the whole session, GNOME Shell
-    launcher included, starts with them);
+  * ~/.config/environment.d/60-asus-dial-gpu.conf holds them for every future login (the whole session, the GNOME Shell or
+    Plasma launcher included, starts with them);
   * `systemctl --user set-environment` gives them at once to everything the session starts from now on (services,
     D-Bus activated apps). Programs already running keep the GPU they were started on.
 

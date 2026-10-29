@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs ASUS Dial for GNOME for your user (apps, launchers, icons, service). Permissions need sudo once.
+# Installs ASUS Dial for GNOME and KDE Plasma for your user (apps, launchers, icons, service). Permissions need sudo once.
 # AI models, Ollama, AirLLM, voice: the AI app installs those by itself the first time you use them.
 set -eu
 cd "$(dirname "$(readlink -f "$0")")"

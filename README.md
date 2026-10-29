@@ -1,4 +1,4 @@
-# ASUS Dial Linux for GNOME
+# ASUS Dial Linux for GNOME and KDE Plasma
 
 **English** · [Español](#español) · [Italiano](#italiano)
 
@@ -6,12 +6,12 @@
 
 # English
 
-Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with GNOME, with an on-screen radial menu and 19 modes.
+Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with **GNOME** or **KDE Plasma**, with an on-screen radial menu and 19 modes.
 
 The kernel creates no input device for the dial. This program reads the raw data from `hidraw`, turns it into actions (scroll, volume, zoom…) and shows a menu and messages on screen.
 
-> Tested on: ASUS ProArt StudioBook H5600QM, Ubuntu with GNOME 46, **X11** session, dial `0B05:0220`.
-> Other models with the same ID should work. Not tested on Wayland (see *Limitations*).
+> Tested on: ASUS ProArt StudioBook H5600QM, dial `0B05:0220`, with Ubuntu + GNOME 46 (X11) and CachyOS + **KDE Plasma 6.8 (Wayland)**.
+> Other models with the same ID should work. The desktop is recognised by itself: nothing to configure (see *GNOME and KDE Plasma*).
 
 > **Quick install:** run `./install.sh` (it does steps 3 and 4 below and asks for `sudo` once for step 2). The AI app installs its own dependencies later, by itself.
 
@@ -31,7 +31,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 | ☀ **Brightness** | screen brightness | – |
 | ⌨ **Keyboard** | keyboard backlight (levels 0–3) | off / back on |
 | 🌙 **Night light** | night light (1700–4700 K), turns on by itself | on / off |
-| 🔍 **Zoom** | in a browser: page zoom; **outside a browser: screen zoom** (GNOME magnifier, up to 16×) | back to 100% |
+| 🔍 **Zoom** | in a browser: page zoom; **outside a browser: screen zoom** (GNOME magnifier or KWin's Zoom effect, up to 16×) | back to 100% |
 | ▶ **Video** | seek ±5 seconds | play / pause |
 | ⏩ **Speed** | video speed from 0.25× to 3× | back to 1× |
 | ⏲ **Timer** | sets the minutes (1 per step up to 10, then 5) | start / cancel |
@@ -65,6 +65,21 @@ The kernel creates no input device for the dial. This program reads the raw data
 
 **House.** Shows a picture that tilts as you rotate. Set the path of your own image in `HOUSE_IMAGE` at the top of the `asus-dial` file; if the file is missing you just get an "image not found" message.
 
+## GNOME and KDE Plasma
+
+The same program runs on both desktops and finds out by itself which one it is on, at every start. Most modes work the same everywhere (keys, scrolling, volume, media, timer, GPU, lock); the ones that need the desktop use its own services (`asus_dial_desktop.py`):
+
+| | GNOME | KDE Plasma |
+|---|---|---|
+| Screen brightness | Mutter / gnome-settings-daemon | PowerDevil (`org.kde.ScreenBrightness`), without Plasma's own OSD |
+| Keyboard backlight | gnome-settings-daemon | PowerDevil (UPower as a fallback on both) |
+| Night light | gsettings, schedule set to "all day" | KWin Night Light (`kwinrc`, mode *Always on*) |
+| Screen zoom | GNOME magnifier | KWin **Zoom** effect |
+| Which window has the focus (browser modes, Rickroll) | `xprop`: X11 windows only | a small **KWin script** that tells the dial over D-Bus: every window, **Wayland included** |
+| On-screen menu and messages | X11 window, scaled by GNOME | X11 window (XWayland) scaled with `GDK_SCALE` from Plasma's scale |
+
+On Plasma the browser modes (*Tabs*, *Find*) and the page zoom therefore know exactly when a browser has the focus, on Wayland too. Nothing is changed in Plasma's settings for good: the night light puts your own mode back when you turn it off, the KWin script is loaded only while the dial runs.
+
 ## Installation
 
 ### 1. Dependencies (Ubuntu / Debian)
@@ -75,11 +90,19 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
 ```
 
 - `wireplumber` (the `wpctl` command): volume.
-- `x11-utils` (the `xprop` command): to tell whether the active window is a browser.
+- `x11-utils` (the `xprop` command): to tell whether the active window is a browser (on GNOME).
 - `pulseaudio-utils` (the `paplay` command): timer sound.
 - `xdg-utils`: opens the default browser.
 - `gnome-terminal`, `curl`, `zstd`: for the AI mode (terminal, downloads, unpacking Ollama).
 - `python3-pil` (Pillow): the frosted-glass blur of the themes (optional: without it the menu is just translucent).
+
+On **Arch / CachyOS / Manjaro** (with GNOME or KDE Plasma):
+
+```bash
+sudo pacman -S --needed python-gobject python-cairo gtk3 wireplumber xorg-xprop xorg-xrdb libpulse xdg-utils curl zstd python-pillow
+```
+
+On KDE Plasma, `kreadconfig6`/`kwriteconfig6` (night light, zoom step) come with Plasma itself, and `xrdb` tells the dial the screen scale.
 
 ### 2. Permissions (once)
 
@@ -158,11 +181,12 @@ Everything is at the top of the `asus-dial` file: mode names and icons (`NAMES`,
 
 ## Limitations and things to know
 
-- **Browser detection is X11 only.** It uses `xprop`. On Wayland the program starts, but it cannot recognise the browser, so *Tabs* and *Find* never show up and zoom outside the browser is always screen zoom.
+- **Browser detection on GNOME is X11 only.** It uses `xprop`: GNOME does not tell anybody which native Wayland window has the focus, so there the dial guesses from whether a browser is running. On **KDE Plasma** it is exact, on Wayland too (KWin script).
 - **Video speed.** It changes the speed through MPRIS (the system media-control interface). If the browser does not allow that, the program falls back to the `Shift+<` and `Shift+>` keys of YouTube-style players, which only work if the video is in the active page, up to 2×.
-- **Night light.** To make it visible at once, the program sets GNOME's schedule to "all day" and saves your own settings in `~/.config/asus-dial.night.json`. When you turn it off it puts them back.
-- **Screen zoom and night light** use GNOME settings (`org.gnome.desktop.a11y.magnifier`, `org.gnome.settings-daemon.plugins.color`).
-- **Keyboard backlight** uses GNOME's power daemon; it is meant for the ASUS keyboard with levels 0 to 3.
+- **Night light.** To make it visible at once, the program sets GNOME's schedule to "all day" (on Plasma: Night Light *Always on*) and saves your own settings in `~/.config/asus-dial.night.json`. When you turn it off it puts them back.
+- **Screen zoom** uses the GNOME magnifier, or on Plasma the KWin Zoom effect, which zooms by its own step (1.2× by default, *System Settings → Accessibility → Zoom*): the dial counts its own steps from 1×, so if you also zoom with the keyboard shortcuts the factor it shows can differ.
+- **Keyboard backlight** uses GNOME's power daemon or PowerDevil on Plasma (UPower if neither answers); it is meant for the ASUS keyboard with levels 0 to 3.
+- **Scale on Plasma.** The menu is an X11 window and GTK 3 scales those only by whole numbers: at 190% it is drawn at 200%.
 - *Power off* **really shuts the computer down**: rotate clockwise until the bar is full, then you have 5 seconds to cancel with a click or by rotating.
 - It has been tested on a single laptop. If your dial has a different ID, change `HID_ID` in `asus-dial` (find it with `cat /sys/class/hidraw/hidraw*/device/uevent | grep HID_ID`).
 
@@ -170,9 +194,9 @@ Everything is at the top of the `asus-dial` file: mode names and icons (`NAMES`,
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus_dial_desktop.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
 rm -f ~/.local/share/applications/asus-dial-manager.desktop ~/.config/autostart/asus-dial-welcome.desktop
-rm -rf ~/.config/asus-dial
+rm -rf ~/.config/asus-dial ~/.local/share/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 # optional, to also remove Ollama and the downloaded models:
@@ -182,7 +206,7 @@ rm -rf ~/.local/ollama ~/.ollama
 ## How it works (in short)
 
 1. It reads `hidraw` reports (id 1: byte 1 bit 0 = button, bytes 2–3 = `int16` rotation, about 8–10 units per detent).
-2. It turns rotation and clicks into events through a virtual `uinput` device, or calls system services (`wpctl`, D-Bus/MPRIS, GNOME).
+2. It turns rotation and clicks into events through a virtual `uinput` device, or calls system services (`wpctl`, D-Bus/MPRIS, GNOME or KDE Plasma).
 3. It draws the menu, messages and animations with GTK 3 and Cairo, in transparent windows that let mouse clicks through.
 
 ## License
@@ -195,12 +219,12 @@ Created by **ALEXLIONBIT** (human, red clothes, curly hair) together with **Clau
 
 # Español
 
-Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con GNOME, con un menú circular en pantalla y 19 modos.
+Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con **GNOME** o **KDE Plasma**, con un menú circular en pantalla y 19 modos.
 
 El kernel no crea ningún dispositivo de entrada para la rueda. Este programa lee los datos en bruto de `hidraw`, los convierte en acciones (desplazar, volumen, zoom…) y muestra un menú y mensajes en pantalla.
 
-> Probado en: ASUS ProArt StudioBook H5600QM, Ubuntu con GNOME 46, sesión **X11**, rueda `0B05:0220`.
-> Otros modelos con el mismo identificador deberían funcionar. No probado en Wayland (ver *Limitaciones*).
+> Probado en: ASUS ProArt StudioBook H5600QM, rueda `0B05:0220`, con Ubuntu + GNOME 46 (X11) y CachyOS + **KDE Plasma 6.8 (Wayland)**.
+> Otros modelos con el mismo identificador deberían funcionar. El escritorio se reconoce solo: no hay nada que configurar (ver *GNOME y KDE Plasma*).
 
 ## Cómo se usa
 
@@ -218,7 +242,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | ☀ **Brillo** | brillo de la pantalla | – |
 | ⌨ **Teclado** | retroiluminación del teclado (niveles 0–3) | apaga / vuelve a encender |
 | 🌙 **Luz nocturna** | luz nocturna (1700–4700 K), se enciende sola | enciende / apaga |
-| 🔍 **Zoom** | en el navegador: zoom de la página; **fuera del navegador: zoom de pantalla** (lupa de GNOME, hasta 16×) | vuelve al 100 % |
+| 🔍 **Zoom** | en el navegador: zoom de la página; **fuera del navegador: zoom de pantalla** (lupa de GNOME o efecto Zoom de KWin, hasta 16×) | vuelve al 100 % |
 | ▶ **Vídeo** | avanza / retrocede 5 segundos | reproducir / pausa |
 | ⏩ **Velocidad** | velocidad del vídeo de 0,25× a 3× | vuelve a 1× |
 | ⏲ **Temporizador** | fija los minutos (1 por paso hasta 10, luego 5) | iniciar / cancelar |
@@ -252,6 +276,21 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 
 **Casa.** Muestra una imagen que se inclina al girar. Pon la ruta de tu propia imagen en `HOUSE_IMAGE`, al principio del archivo `asus-dial`; si el archivo no existe solo verás el mensaje «imagen no encontrada».
 
+## GNOME y KDE Plasma
+
+El mismo programa funciona en los dos escritorios y averigua solo en cuál está, cada vez que arranca. La mayoría de los modos funcionan igual en todas partes (teclas, desplazamiento, volumen, multimedia, temporizador, GPU, bloqueo); los que necesitan el escritorio usan sus propios servicios (`asus_dial_desktop.py`):
+
+| | GNOME | KDE Plasma |
+|---|---|---|
+| Brillo de pantalla | Mutter / gnome-settings-daemon | PowerDevil (`org.kde.ScreenBrightness`), sin el OSD de Plasma |
+| Retroiluminación del teclado | gnome-settings-daemon | PowerDevil (UPower como respaldo en ambos) |
+| Luz nocturna | gsettings, horario «todo el día» | Luz nocturna de KWin (`kwinrc`, modo *Siempre activa*) |
+| Zoom de pantalla | lupa de GNOME | efecto **Zoom** de KWin |
+| Qué ventana tiene el foco (modos del navegador, Rickroll) | `xprop`: solo ventanas X11 | un pequeño **script de KWin** que se lo dice al dial por D-Bus: todas las ventanas, **también en Wayland** |
+| Menú y mensajes en pantalla | ventana X11, escalada por GNOME | ventana X11 (XWayland) escalada con `GDK_SCALE` según la escala de Plasma |
+
+Así, en Plasma los modos del navegador (*Pestañas*, *Buscar*) y el zoom de la página saben exactamente cuándo el navegador tiene el foco, también en Wayland. No se cambia nada de Plasma para siempre: la luz nocturna vuelve a tu modo al apagarla y el script de KWin solo está cargado mientras el dial funciona.
+
 ## Instalación
 
 ### 1. Dependencias (Ubuntu / Debian)
@@ -262,11 +301,19 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
 ```
 
 - `wireplumber` (comando `wpctl`): volumen.
-- `x11-utils` (comando `xprop`): para saber si la ventana activa es un navegador.
+- `x11-utils` (comando `xprop`): para saber si la ventana activa es un navegador (en GNOME).
 - `pulseaudio-utils` (comando `paplay`): sonido del temporizador.
 - `xdg-utils`: abre el navegador predeterminado.
 - `gnome-terminal`, `curl`, `zstd`: para el modo IA (terminal, descargas, descomprimir Ollama).
 - `python3-pil` (Pillow): el desenfoque de cristal esmerilado de los temas (opcional: sin él el menú es solo translúcido).
+
+En **Arch / CachyOS / Manjaro** (con GNOME o KDE Plasma):
+
+```bash
+sudo pacman -S --needed python-gobject python-cairo gtk3 wireplumber xorg-xprop xorg-xrdb libpulse xdg-utils curl zstd python-pillow
+```
+
+En KDE Plasma, `kreadconfig6`/`kwriteconfig6` (luz nocturna, paso del zoom) vienen con Plasma, y `xrdb` le dice al dial la escala de la pantalla.
 
 ### 2. Permisos (una sola vez)
 
@@ -345,11 +392,12 @@ Todo está al principio del archivo `asus-dial`: nombres e iconos de los modos (
 
 ## Limitaciones y cosas que conviene saber
 
-- **La detección del navegador solo funciona en X11.** Usa `xprop`. En Wayland el programa arranca, pero no reconoce el navegador: *Pestañas* y *Buscar* nunca aparecen y el zoom fuera del navegador es siempre el de pantalla.
+- **En GNOME la detección del navegador solo funciona con ventanas X11.** Usa `xprop`: GNOME no dice a nadie qué ventana Wayland nativa tiene el foco, así que allí el dial lo deduce de si hay un navegador abierto. En **KDE Plasma** es exacta, también en Wayland (script de KWin).
 - **Velocidad de vídeo.** Cambia la velocidad mediante MPRIS (la interfaz de control multimedia del sistema). Si el navegador no lo permite, el programa recurre a las teclas `Mayús+<` y `Mayús+>` de los reproductores tipo YouTube, que solo funcionan si el vídeo está en la página activa y hasta 2×.
-- **Luz nocturna.** Para que se vea al instante, el programa pone el horario de GNOME en «todo el día» y guarda tu configuración en `~/.config/asus-dial.night.json`. Al apagarla la restaura.
-- **El zoom de pantalla y la luz nocturna** usan ajustes de GNOME (`org.gnome.desktop.a11y.magnifier`, `org.gnome.settings-daemon.plugins.color`).
-- **La retroiluminación del teclado** usa el demonio de energía de GNOME; está pensada para el teclado ASUS con niveles de 0 a 3.
+- **Luz nocturna.** Para que se vea al instante, el programa pone el horario de GNOME en «todo el día» (en Plasma: luz nocturna *Siempre activa*) y guarda tu configuración en `~/.config/asus-dial.night.json`. Al apagarla la restaura.
+- **El zoom de pantalla** usa la lupa de GNOME o, en Plasma, el efecto Zoom de KWin, que amplía con su propio paso (1,2× por defecto, *Preferencias del sistema → Accesibilidad → Zoom*): el dial cuenta sus pasos desde 1×, así que si también haces zoom con los atajos de teclado el factor que muestra puede no coincidir.
+- **La retroiluminación del teclado** usa el demonio de energía de GNOME o PowerDevil en Plasma (UPower si ninguno responde); está pensada para el teclado ASUS con niveles de 0 a 3.
+- **Escala en Plasma.** El menú es una ventana X11 y GTK 3 solo las escala por números enteros: al 190 % se dibuja al 200 %.
 - *Apagar* **apaga el ordenador de verdad**: gira en sentido horario hasta llenar la barra y tendrás 5 segundos para cancelar con un clic o girando.
 - Solo se ha probado en un portátil. Si tu rueda tiene otro identificador, cambia `HID_ID` en `asus-dial` (lo encuentras con `cat /sys/class/hidraw/hidraw*/device/uevent | grep HID_ID`).
 
@@ -357,9 +405,9 @@ Todo está al principio del archivo `asus-dial`: nombres e iconos de los modos (
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus_dial_desktop.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
 rm -f ~/.local/share/applications/asus-dial-manager.desktop ~/.config/autostart/asus-dial-welcome.desktop
-rm -rf ~/.config/asus-dial
+rm -rf ~/.config/asus-dial ~/.local/share/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 # opcional, para quitar también Ollama y los modelos descargados:
@@ -369,7 +417,7 @@ rm -rf ~/.local/ollama ~/.ollama
 ## Cómo funciona (resumen)
 
 1. Lee los informes de `hidraw` (id 1: byte 1 bit 0 = botón, bytes 2–3 = rotación `int16`, unas 8–10 unidades por paso).
-2. Convierte el giro y los clics en eventos con un dispositivo `uinput` virtual, o llama a servicios del sistema (`wpctl`, D-Bus/MPRIS, GNOME).
+2. Convierte el giro y los clics en eventos con un dispositivo `uinput` virtual, o llama a servicios del sistema (`wpctl`, D-Bus/MPRIS, GNOME o KDE Plasma).
 3. Dibuja el menú, los mensajes y las animaciones con GTK 3 y Cairo, en ventanas transparentes que dejan pasar los clics del ratón.
 
 ## Licencia
@@ -382,12 +430,12 @@ Creado por **ALEXLIONBIT** (humano, ropa roja, pelo rizado) junto con **Claude**
 
 # Italiano
 
-Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con GNOME, con un menu circolare a schermo e 19 modalità.
+Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con **GNOME** o **KDE Plasma**, con un menu circolare a schermo e 19 modalità.
 
 Il kernel non crea nessun dispositivo di input per la manopola. Questo programma legge i dati grezzi da `hidraw`, li trasforma in azioni (scorrere, volume, zoom…) e mostra un menu e dei messaggi a schermo.
 
-> Provato su: ASUS ProArt StudioBook H5600QM, Ubuntu con GNOME 46, sessione **X11**, manopola `0B05:0220`.
-> Altri modelli con lo stesso identificativo dovrebbero funzionare. Non è provato su Wayland (vedi *Limiti*).
+> Provato su: ASUS ProArt StudioBook H5600QM, manopola `0B05:0220`, con Ubuntu + GNOME 46 (X11) e CachyOS + **KDE Plasma 6.8 (Wayland)**.
+> Altri modelli con lo stesso identificativo dovrebbero funzionare. Il desktop viene riconosciuto da solo: non c'è niente da configurare (vedi *GNOME e KDE Plasma*).
 
 ## Come si usa
 
@@ -405,7 +453,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | ☀ **Luminosità** | luminosità dello schermo | – |
 | ⌨ **Tastiera** | retroilluminazione tastiera (livelli 0–3) | spegne / riaccende |
 | 🌙 **Luce** | luce notturna (1700–4700 K), si accende da sola | accende / spegne |
-| 🔍 **Zoom** | nel browser zoom della pagina; **fuori dal browser zoom dello schermo** (lente di GNOME, fino a 16×) | torna a 100% |
+| 🔍 **Zoom** | nel browser zoom della pagina; **fuori dal browser zoom dello schermo** (lente di GNOME o effetto Zoom di KWin, fino a 16×) | torna a 100% |
 | ▶ **Video** | avanti / indietro di 5 secondi | play / pausa |
 | ⏩ **Velocità** | velocità del video da 0,25× a 3× | torna a 1× |
 | ⏲ **Timer** | imposta i minuti (1 a scatto fino a 10, poi 5) | avvia / annulla |
@@ -439,6 +487,21 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 
 **Casa.** Mostra un'immagine che si inclina con la manopola. Metti il percorso della tua immagine in `HOUSE_IMAGE` in cima al file `asus-dial`; se il file non c'è, compare solo il messaggio «Immagine non trovata».
 
+## GNOME e KDE Plasma
+
+Lo stesso programma funziona su entrambi i desktop e capisce da solo su quale si trova, a ogni avvio. Quasi tutte le modalità funzionano allo stesso modo ovunque (tasti, scorrimento, volume, multimedia, timer, GPU, blocco); quelle che hanno bisogno del desktop usano i suoi servizi (`asus_dial_desktop.py`):
+
+| | GNOME | KDE Plasma |
+|---|---|---|
+| Luminosità dello schermo | Mutter / gnome-settings-daemon | PowerDevil (`org.kde.ScreenBrightness`), senza l'OSD di Plasma |
+| Retroilluminazione tastiera | gnome-settings-daemon | PowerDevil (UPower come riserva su entrambi) |
+| Luce notturna | gsettings, orario «tutto il giorno» | Luce notturna di KWin (`kwinrc`, modalità *Sempre attiva*) |
+| Zoom dello schermo | lente di GNOME | effetto **Zoom** di KWin |
+| Quale finestra ha il focus (modalità del browser, Rickroll) | `xprop`: solo finestre X11 | un piccolo **script di KWin** che lo dice al dial via D-Bus: tutte le finestre, **anche su Wayland** |
+| Menu e messaggi a schermo | finestra X11, scalata da GNOME | finestra X11 (XWayland) scalata con `GDK_SCALE` secondo la scala di Plasma |
+
+Così su Plasma le modalità del browser (*Schede*, *Trova*) e lo zoom della pagina sanno esattamente quando il browser ha il focus, anche su Wayland. Nelle impostazioni di Plasma non cambia niente per sempre: la luce notturna torna alla tua modalità quando la spegni e lo script di KWin è caricato solo finché il dial è in funzione.
+
 ## Installazione
 
 ### 1. Dipendenze (Ubuntu / Debian)
@@ -449,11 +512,19 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
 ```
 
 - `wireplumber` (comando `wpctl`): volume.
-- `x11-utils` (comando `xprop`): per capire se la finestra attiva è un browser.
+- `x11-utils` (comando `xprop`): per capire se la finestra attiva è un browser (su GNOME).
 - `pulseaudio-utils` (comando `paplay`): suono del timer.
 - `xdg-utils`: apre il browser predefinito.
 - `gnome-terminal`, `curl`, `zstd`: per la modalità AI (terminale, download, estrazione di Ollama).
 - `python3-pil` (Pillow): la sfocatura a vetro smerigliato dei temi (facoltativo: senza, il menu è solo semitrasparente).
+
+Su **Arch / CachyOS / Manjaro** (con GNOME o KDE Plasma):
+
+```bash
+sudo pacman -S --needed python-gobject python-cairo gtk3 wireplumber xorg-xprop xorg-xrdb libpulse xdg-utils curl zstd python-pillow
+```
+
+Su KDE Plasma `kreadconfig6`/`kwriteconfig6` (luce notturna, passo dello zoom) arrivano con Plasma, e `xrdb` dice al dial la scala dello schermo.
 
 ### 2. Permessi (una volta sola)
 
@@ -532,11 +603,12 @@ Tutto è in cima al file `asus-dial`: nomi e icone delle modalità (`NAMES`, `IC
 
 ## Limiti e cose da sapere
 
-- **Solo X11 per il riconoscimento del browser.** Si usa `xprop`. Su Wayland il programma parte, ma non riconosce il browser, quindi *Schede* e *Trova* non compaiono e lo zoom fuori dal browser è sempre quello dello schermo.
+- **Su GNOME il browser si riconosce solo nelle finestre X11.** Si usa `xprop`: GNOME non dice a nessuno quale finestra Wayland nativa ha il focus, quindi lì il dial lo deduce dal fatto che un browser sia aperto. Su **KDE Plasma** è esatto, anche su Wayland (script di KWin).
 - **Velocità video.** Cambia la velocità tramite MPRIS (il controllo multimediale di sistema). Se il browser non lo permette, il programma passa ai tasti `Shift+<` e `Shift+>` dei lettori tipo YouTube, che funzionano solo se il video è nella pagina attiva e fino a 2×.
-- **Luce notturna.** Per vederla subito il programma imposta il programma di GNOME su «tutto il giorno» e salva le tue impostazioni in `~/.config/asus-dial.night.json`. Quando la spegni le rimette com'erano.
-- **Zoom dello schermo e luce notturna** usano le impostazioni di GNOME (`org.gnome.desktop.a11y.magnifier`, `org.gnome.settings-daemon.plugins.color`).
-- **Retroilluminazione tastiera** usa il demone energia di GNOME; è pensata per la tastiera ASUS con livelli da 0 a 3.
+- **Luce notturna.** Per vederla subito il programma imposta il programma di GNOME su «tutto il giorno» (su Plasma: luce notturna *Sempre attiva*) e salva le tue impostazioni in `~/.config/asus-dial.night.json`. Quando la spegni le rimette com'erano.
+- **Zoom dello schermo** usa la lente di GNOME oppure, su Plasma, l'effetto Zoom di KWin, che ingrandisce col suo passo (1,2× di default, *Impostazioni di sistema → Accessibilità → Zoom*): il dial conta i suoi passi da 1×, quindi se fai zoom anche con le scorciatoie da tastiera il fattore mostrato può non coincidere.
+- **Retroilluminazione tastiera** usa il demone energia di GNOME o PowerDevil su Plasma (UPower se nessuno dei due risponde); è pensata per la tastiera ASUS con livelli da 0 a 3.
+- **Scala su Plasma.** Il menu è una finestra X11 e GTK 3 le scala solo per numeri interi: al 190% viene disegnato al 200%.
 - La modalità *Arresta* **spegne davvero il computer**: ruota in senso orario fino alla barra piena, poi hai 5 secondi per annullare con un clic o ruotando.
 - Il programma è provato su un solo portatile. Se la tua manopola ha un identificativo diverso, cambia `HID_ID` in `asus-dial` (lo trovi con `cat /sys/class/hidraw/hidraw*/device/uevent | grep HID_ID`).
 
@@ -544,9 +616,9 @@ Tutto è in cima al file `asus-dial`: nomi e icone delle modalità (`NAMES`, `IC
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus_dial_desktop.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
 rm -f ~/.local/share/applications/asus-dial-manager.desktop ~/.config/autostart/asus-dial-welcome.desktop
-rm -rf ~/.config/asus-dial
+rm -rf ~/.config/asus-dial ~/.local/share/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 # facoltativo, per togliere anche Ollama e i modelli scaricati:
@@ -556,7 +628,7 @@ rm -rf ~/.local/ollama ~/.ollama
 ## Come funziona (in breve)
 
 1. Legge i rapporti di `hidraw` (id 1: byte 1 bit 0 = pulsante, byte 2-3 = rotazione `int16`, circa 8-10 unità per scatto).
-2. Trasforma rotazione e clic in eventi con un dispositivo `uinput` virtuale oppure chiama servizi di sistema (`wpctl`, D-Bus/MPRIS, GNOME).
+2. Trasforma rotazione e clic in eventi con un dispositivo `uinput` virtuale oppure chiama servizi di sistema (`wpctl`, D-Bus/MPRIS, GNOME o KDE Plasma).
 3. Disegna menu, messaggi e animazioni con GTK 3 e Cairo, in finestre trasparenti che non intercettano il mouse.
 
 ## Licenza

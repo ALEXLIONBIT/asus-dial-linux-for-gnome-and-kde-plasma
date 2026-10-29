@@ -17,10 +17,16 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("PangoCairo", "1.0")
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import asus_dial_desktop as adesk  # brightness, night light, zoom and focus on GNOME or KDE Plasma
+
+_overlay_env = adesk.overlay_env()
+os.environ.update(_overlay_env)
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, PangoCairo
 import cairo
 
-sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+if "GDK_SCALE" in _overlay_env:  # only for the dial's own windows: the apps it starts keep the desktop's scaling
+    del os.environ["GDK_SCALE"]
 import asus_dial_config as acfg  # config file, built-in mode names/icons, key names
 import asus_dial_gpu as agpu  # graphics cards and the GPU mode
 import asus_dial_theme as ath  # how the menu and the messages are drawn (themes)
@@ -993,10 +999,8 @@ class Dial:
         self.speed = 1.0
         self.keylight_last = KEYLIGHT_LEVELS
         self.alt_down, self.alt_id = False, 0
-        self.color = self._settings("org.gnome.settings-daemon.plugins.color")
+        self.desk = adesk.for_session(self.bus)
         self.focus_browser = False
-        self.mag_apps = self._settings("org.gnome.desktop.a11y.applications")
-        self.mag = self._settings("org.gnome.desktop.a11y.magnifier")
         self.watch_id = 0
         self.connect_hid()
         self.start_api()
@@ -1384,25 +1388,12 @@ class Dial:
         return self.focus_browser
 
     def _focus_is_browser(self):
-        cls = self._x_focus_class()
-        if cls is not None:  # an X11 window has the focus: its class tells
+        cls = self.desk.focus_class()
+        if cls is not None:  # the desktop tells which window has the focus (any window on KDE, X11 ones on GNOME)
             return any(b in cls for b in BROWSER_CLASSES)
-        # Nothing of X11 has the focus: a native Wayland window has (GNOME does not tell which one, to anybody).
+        # A native Wayland window on GNOME has the focus (GNOME does not tell which one, to anybody).
         # Then a running browser is the best guess, so the browser modes (Tabs, Find) and the page zoom stay available.
         return self._browser_running()
-
-    @staticmethod
-    def _x_focus_class():
-        """WM_CLASS (lower case) of the focused X11 window, or None if no X11 window has the focus."""
-        try:
-            root = subprocess.run(["xprop", "-root", "_NET_ACTIVE_WINDOW"], capture_output=True, text=True, timeout=0.5).stdout
-            wid = root.split()[-1]
-            if not wid.startswith("0x") or int(wid, 16) == 0:
-                return None
-            cls = subprocess.run(["xprop", "-id", wid, "WM_CLASS"], capture_output=True, text=True, timeout=0.5).stdout.lower()
-        except (OSError, IndexError, ValueError, subprocess.SubprocessError):
-            return None
-        return cls if "=" in cls else None  # "not found" = a window that is gone or has no class
 
     def _browser_running(self):
         """True if a web browser process exists (looked up at most every 2 seconds)."""
@@ -1430,29 +1421,12 @@ class Dial:
         """The chosen tool, or Scroll while a browser-only tool has no browser to act on (choice is kept)."""
         return self.tool if self.tool in self.available_tools() else SCROLL
 
-    # --- real screen zoom (GNOME magnifier) outside the browser ---
-    @staticmethod
-    def _settings(schema):
-        src = Gio.SettingsSchemaSource.get_default()
-        return Gio.Settings.new(schema) if src and src.lookup(schema, True) else None
-
+    # --- real screen zoom outside the browser (GNOME magnifier / KWin Zoom effect) ---
     def get_magnifier(self):
-        if not (self.mag and self.mag_apps) or not self.mag_apps.get_boolean("screen-magnifier-enabled"):
-            return 1.0
-        return self.mag.get_double("mag-factor")
+        return self.desk.get_magnifier()
 
     def set_magnifier(self, factor):
-        if not (self.mag and self.mag_apps):
-            return 1.0
-        factor = max(1.0, min(MAG_MAX, round(factor / MAG_STEP) * MAG_STEP))
-        if factor <= 1.0:
-            self.mag_apps.set_boolean("screen-magnifier-enabled", False)
-            self.mag.set_double("mag-factor", 1.0)
-        else:
-            self.mag.set_double("mag-factor", factor)
-            self.mag_apps.set_boolean("screen-magnifier-enabled", True)
-        Gio.Settings.sync()
-        return factor
+        return self.desk.set_magnifier(factor, MAG_STEP, MAG_MAX)
 
     def rotate_magnifier(self, delta):
         self.acc += delta * -self.sign  # clockwise (default) = zoom in
@@ -1503,51 +1477,12 @@ class Dial:
         except (IndexError, ValueError, OSError):
             return 0.0, False
 
-    def _power(self, method, args):
-        return self.bus.call_sync("org.gnome.SettingsDaemon.Power", "/org/gnome/SettingsDaemon/Power",
-                                  "org.freedesktop.DBus.Properties", method, args,
-                                  None, Gio.DBusCallFlags.NONE, 500, None)
-
-    # Screen brightness. GNOME 48+ moved it into Mutter (DisplayConfig.Backlight, in the panel's own units);
-    # older GNOME has it in gnome-settings-daemon (a plain 0-100 property). Both are tried, Mutter first.
-    def _backlight(self):
-        """(serial, [outputs with a backlight]) from Mutter, or None if this GNOME has no such property."""
-        try:
-            r = self.bus.call_sync("org.gnome.Mutter.DisplayConfig", "/org/gnome/Mutter/DisplayConfig", "org.freedesktop.DBus.Properties", "Get",
-                                   GLib.Variant("(ss)", ("org.gnome.Mutter.DisplayConfig", "Backlight")), None, Gio.DBusCallFlags.NONE, 500, None)
-            serial, outs = r.unpack()[0]
-            outs = [o for o in outs if o.get("active", True) and o["max"] > o["min"]]
-            return (serial, outs) if outs else None
-        except (GLib.Error, KeyError, ValueError):
-            return None
-
     def get_brightness(self):
-        bl = self._backlight()
-        if bl:
-            o = bl[1][0]
-            return round((o["value"] - o["min"]) * 100 / (o["max"] - o["min"]))
-        try:
-            return self._power("Get", GLib.Variant("(ss)", ("org.gnome.SettingsDaemon.Power.Screen", "Brightness"))).unpack()[0]
-        except GLib.Error:
-            return 50
+        b = self.desk.get_brightness()
+        return 50 if b is None else b
 
     def set_brightness(self, pct):
-        pct = max(0, min(100, pct))
-        bl = self._backlight()
-        if bl:
-            serial, outs = bl
-            for o in outs:
-                value = round(o["min"] + pct * (o["max"] - o["min"]) / 100)
-                try:
-                    self.bus.call_sync("org.gnome.Mutter.DisplayConfig", "/org/gnome/Mutter/DisplayConfig", "org.gnome.Mutter.DisplayConfig",
-                                       "SetBacklight", GLib.Variant("(usi)", (serial, o["connector"], value)), None, Gio.DBusCallFlags.NONE, 500, None)
-                except GLib.Error:
-                    pass
-            return
-        try:
-            self._power("Set", GLib.Variant("(ssv)", ("org.gnome.SettingsDaemon.Power.Screen", "Brightness", GLib.Variant("i", pct))))
-        except GLib.Error:
-            pass
+        self.desk.set_brightness(max(0, min(100, pct)))
 
     # --- shutdown ---
     def rotate_power(self, delta, now):
@@ -1638,7 +1573,7 @@ class Dial:
         if not os.path.exists(script):
             script = os.path.expanduser(f"~/.local/bin/{AI_SCRIPT}")
         try:
-            # the dial itself runs on X11 (GDK_BACKEND=x11); the chat must not inherit it, or GNOME cannot tell which launcher
+            # the dial itself runs on X11 (GDK_BACKEND=x11); the chat must not inherit it, or the desktop cannot tell which launcher
             # (name, icon) the window belongs to
             env = {k: v for k, v in os.environ.items() if k != "GDK_BACKEND"}
             subprocess.Popen([script, "--model", arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, env=env)
@@ -1677,14 +1612,7 @@ class Dial:
         return False
 
     def _active_title(self):
-        try:
-            root = subprocess.run(["xprop", "-root", "_NET_ACTIVE_WINDOW"], capture_output=True, text=True, timeout=0.5).stdout
-            wid = root.split()[-1]
-            if not wid.startswith("0x") or int(wid, 16) == 0:
-                return ""
-            return subprocess.run(["xprop", "-id", wid, "_NET_WM_NAME"], capture_output=True, text=True, timeout=0.5).stdout
-        except (OSError, IndexError, ValueError, subprocess.SubprocessError):
-            return ""
+        return self.desk.active_title()
 
     def _anything_playing(self):
         for name in self._mpris_players():
@@ -1733,18 +1661,12 @@ class Dial:
 
     # --- keyboard backlight ---
     def get_keylight(self):
-        try:
-            pct = self._power("Get", GLib.Variant("(ss)", ("org.gnome.SettingsDaemon.Power.Keyboard", "Brightness"))).unpack()[0]
-            return round(max(0, pct) * KEYLIGHT_LEVELS / 100)
-        except GLib.Error:
-            return 0
+        f = self.desk.get_keylight()
+        return round(f * KEYLIGHT_LEVELS) if f is not None else 0
 
     def set_keylight(self, level):
         level = max(0, min(KEYLIGHT_LEVELS, level))
-        try:
-            self._power("Set", GLib.Variant("(ssv)", ("org.gnome.SettingsDaemon.Power.Keyboard", "Brightness",
-                                                        GLib.Variant("i", round(level * 100 / KEYLIGHT_LEVELS)))))
-        except GLib.Error:
+        if not self.desk.set_keylight(level / KEYLIGHT_LEVELS):
             self.show_label(L("keylight_na"))
             return
         if level:
@@ -1870,55 +1792,42 @@ class Dial:
         return os.path.exists(NIGHT_STATE)
 
     def night_toggle(self):
-        if not self.color:
+        if not self.desk.night_available():
             self.show_label(L("night_na"))
         elif self.night_is_on():
             self.night_off()
             self.show_label(L("night_off"))
         else:
             self.night_on()
-            self.show_label(L("night_on", k=self.color.get_uint("night-light-temperature")))
+            self.show_label(L("night_on", k=self.desk.night_temperature()))
 
     def night_on(self):
-        c = self.color
         if not self.night_is_on():  # remember the user's own schedule so it can be restored
-            saved = {"enabled": c.get_boolean("night-light-enabled"), "automatic": c.get_boolean("night-light-schedule-automatic"),
-                     "from": c.get_double("night-light-schedule-from"), "to": c.get_double("night-light-schedule-to")}
             os.makedirs(os.path.dirname(NIGHT_STATE), exist_ok=True)
             with open(NIGHT_STATE, "w") as f:
-                json.dump(saved, f)
-        c.set_boolean("night-light-schedule-automatic", False)
-        c.set_double("night-light-schedule-from", 0.0)
-        c.set_double("night-light-schedule-to", 24.0)
-        c.set_boolean("night-light-enabled", True)
-        Gio.Settings.sync()
+                json.dump(self.desk.night_save(), f)
+        self.desk.night_force_on()
 
     def night_off(self):
-        c = self.color
         try:
             with open(NIGHT_STATE) as f:
                 saved = json.load(f)
         except (OSError, ValueError):
-            saved = {"enabled": False, "automatic": True, "from": 20.0, "to": 6.0}
-        c.set_double("night-light-schedule-from", saved["from"])
-        c.set_double("night-light-schedule-to", saved["to"])
-        c.set_boolean("night-light-schedule-automatic", saved["automatic"])
-        c.set_boolean("night-light-enabled", saved["enabled"])
-        Gio.Settings.sync()
+            saved = None
+        self.desk.night_restore(saved)
         try:
             os.remove(NIGHT_STATE)
         except OSError:
             pass
 
     def night_step(self, d):
-        if not self.color:
+        if not self.desk.night_available():
             self.show_label(L("night_na"))
             return
-        k = max(NIGHT_MIN, min(NIGHT_MAX, self.color.get_uint("night-light-temperature") - d * NIGHT_STEP))  # clockwise = warmer
-        self.color.set_uint("night-light-temperature", k)
+        k = max(NIGHT_MIN, min(NIGHT_MAX, self.desk.night_temperature() - d * NIGHT_STEP))  # clockwise = warmer
+        self.desk.set_night_temperature(k)
         if not self.night_is_on():
             self.night_on()
-        Gio.Settings.sync()
         self.show_label(L("night_k", k=k), (NIGHT_MAX - k) / (NIGHT_MAX - NIGHT_MIN))
 
     # --- window switcher (Alt held, Tab per step) ---
@@ -2112,18 +2021,18 @@ class Dial:
         return {"minutes": self.timer_minutes}
 
     def api_night_light(self, a):
-        if not self.color:
+        if not self.desk.night_available():
             raise ValueError("no night light")
         state = a.get("state", "toggle")
         if state == "toggle":
             state = "off" if self.night_is_on() else "on"
         if "kelvin" in a:
-            self.color.set_uint("night-light-temperature", int(max(NIGHT_MIN, min(NIGHT_MAX, self._num(a, "kelvin")))))
+            self.desk.set_night_temperature(int(max(NIGHT_MIN, min(NIGHT_MAX, self._num(a, "kelvin")))))
         if state == "on":
             self.night_on()
         else:
             self.night_off()
-        self.show_label(L("night_on", k=self.color.get_uint("night-light-temperature")) if state == "on" else L("night_off"))
+        self.show_label(L("night_on", k=self.desk.night_temperature()) if state == "on" else L("night_off"))
         return {"night_light": state == "on"}
 
     def api_keyboard_light(self, a):

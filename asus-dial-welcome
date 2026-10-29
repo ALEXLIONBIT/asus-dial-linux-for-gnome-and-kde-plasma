@@ -15,6 +15,9 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
+import asus_dial_desktop as adesk
+
+os.environ.update(adesk.overlay_env())  # on Plasma: an X11 window, so it can sit on the bottom edge above everything
 from gi.repository import Gdk, GLib, Gtk
 import cairo
 

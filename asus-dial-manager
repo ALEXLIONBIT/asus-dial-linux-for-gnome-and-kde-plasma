@@ -992,12 +992,12 @@ class Manager(Gtk.Window):
         if visible:
             ath.draw_osd(cr, th, "🔊 Volume 62%", 0.62, time.monotonic() - self.pt0, bd, anim=anim)
 
-    REPO_URL = "https://github.com/ALEXLIONBIT/asus-dial-linux-for-gnome"
+    REPO_URL = "https://github.com/ALEXLIONBIT/asus-dial-linux-for-gnome-and-kde-plasma"
 
     def build_about_tab(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, border_width=16)
         title = Gtk.Label(xalign=0)
-        title.set_markup("<span size='x-large' weight='bold'>ASUS Dial Linux for GNOME</span>")
+        title.set_markup("<span size='x-large' weight='bold'>ASUS Dial Linux for GNOME and KDE Plasma</span>")
         page.pack_start(title, False, False, 0)
         page.pack_start(Gtk.Label(label=self.tr("about_made"), xalign=0, wrap=True), False, False, 0)
         area = Gtk.DrawingArea()
