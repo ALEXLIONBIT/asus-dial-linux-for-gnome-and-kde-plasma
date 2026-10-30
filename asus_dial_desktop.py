@@ -10,6 +10,8 @@ logind and environment.d, and works the same on both. `for_session(bus)` returns
 
 Both fall back to UPower for the keyboard backlight, so it also works where the desktop has no such control.
 """
+import ctypes
+import ctypes.util
 import json
 import math
 import os
@@ -47,24 +49,92 @@ DBUS_XML = f"""<node><interface name="{DBUS_NAME}">
 </interface></node>"""
 
 
+def _plasma_x11_scale():
+    """How much the dial's X11 windows must scale themselves on Plasma: the screen's scale when KWin shows X11 windows at
+    the real resolution (the X screen is as wide as the outputs in pixels), 1 when KWin scales them itself."""
+    try:
+        out = subprocess.run(["kscreen-doctor", "-j"], capture_output=True, text=True, timeout=3).stdout
+        outputs = [o for o in json.loads(out).get("outputs", []) if o.get("enabled")]
+        x11 = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+        x11.XOpenDisplay.restype, x11.XOpenDisplay.argtypes = ctypes.c_void_p, [ctypes.c_char_p]
+        x11.XDisplayWidth.argtypes, x11.XCloseDisplay.argtypes = [ctypes.c_void_p, ctypes.c_int], [ctypes.c_void_p]
+        dpy = x11.XOpenDisplay(None)
+        if not dpy or not outputs:
+            raise OSError("no X display or no outputs")
+        root_w = x11.XDisplayWidth(dpy, 0)
+        x11.XCloseDisplay(dpy)
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        # no KScreen: Xft.dpi, which Plasma sets to 96 × scale when X11 apps scale themselves
+        try:
+            out = subprocess.run(["xrdb", "-query"], capture_output=True, text=True, timeout=2).stdout
+            return next(float(line.split()[1]) for line in out.splitlines() if line.startswith("Xft.dpi:")) / 96
+        except (OSError, subprocess.SubprocessError, StopIteration, IndexError, ValueError):
+            return 1.0
+    scale = max(float(o.get("scale") or 1) for o in outputs)
+    right = max((o.get("pos") or {}).get("x", 0) + (o.get("size") or {}).get("width", 0) / float(o.get("scale") or 1) for o in outputs)
+    return scale if root_w > right * 1.05 else 1.0  # wider than the outputs in logical pixels: real pixels
+
+
 def overlay_env():
     """Variables a program that draws on-screen overlays (the dial's menu and messages, the welcome) sets before GTK starts.
 
     Overlays run on X11: Wayland lets no app place its window or keep it above the others. GNOME scales X11 windows by
-    itself; Plasma lets them draw at the screen's real resolution and tells the scale only through Xft.dpi, which GTK 3
-    does not use for its windows, so there GDK_SCALE (a whole number) makes the overlays as big as on GNOME."""
+    itself; Plasma can show them at the screen's real resolution, and GTK 3 then needs GDK_SCALE (a whole number) to draw
+    the overlays as big as on GNOME."""
     if "kde" not in os.environ.get("XDG_CURRENT_DESKTOP", "").lower():
         return {}
     env = {"GDK_BACKEND": "x11"}
-    if not os.environ.get("GDK_SCALE"):
-        try:
-            out = subprocess.run(["xrdb", "-query"], capture_output=True, text=True, timeout=2).stdout
-            dpi = next(float(line.split()[1]) for line in out.splitlines() if line.startswith("Xft.dpi:"))
-        except (OSError, subprocess.SubprocessError, StopIteration, IndexError, ValueError):
-            dpi = 96.0
-        if round(dpi / 96) > 1:
-            env["GDK_SCALE"] = str(round(dpi / 96))
+    scale = round(_plasma_x11_scale()) if not os.environ.get("GDK_SCALE") else 1
+    if scale > 1:
+        env["GDK_SCALE"] = str(scale)
     return env
+
+
+class KWinBlur:
+    """Plasma's real frosted glass for an X11 window: KWin blurs what is behind the region the window puts in
+    _KDE_NET_WM_BLUR_BEHIND_REGION (the property Plasma's own panels and popups use)."""
+
+    def __init__(self):
+        x11 = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+        x11.XOpenDisplay.restype, x11.XOpenDisplay.argtypes = ctypes.c_void_p, [ctypes.c_char_p]
+        x11.XInternAtom.restype, x11.XInternAtom.argtypes = ctypes.c_ulong, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        x11.XChangeProperty.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
+                                        ctypes.c_void_p, ctypes.c_int]
+        x11.XDeleteProperty.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong]
+        x11.XFlush.argtypes = [ctypes.c_void_p]
+        self.x11 = x11
+        self.dpy = x11.XOpenDisplay(None)
+        if not self.dpy:
+            raise OSError("no X display")
+        self.atom = x11.XInternAtom(self.dpy, b"_KDE_NET_WM_BLUR_BEHIND_REGION", 0)
+
+    def set(self, xid, rects):
+        """rects: [(x, y, w, h)] in window pixels; None or [] = no blur."""
+        if rects:
+            flat = [v for r in rects for v in r]
+            data = (ctypes.c_ulong * len(flat))(*flat)
+            self.x11.XChangeProperty(self.dpy, xid, self.atom, 6, 32, 0, data, len(flat))  # 6 = CARDINAL, 0 = replace
+        else:
+            self.x11.XDeleteProperty(self.dpy, xid, self.atom)
+        self.x11.XFlush(self.dpy)
+
+
+_kwin_blur = []
+
+
+def kwin_blur():
+    """The KWinBlur of this process, or None where KWin's blur effect is not there (GNOME, blur switched off)."""
+    if not _kwin_blur:
+        kb = None
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+            on = bus.call_sync("org.kde.KWin", "/Effects", "org.kde.kwin.Effects", "isEffectLoaded", GLib.Variant("(s)", ("blur",)),
+                               GLib.VariantType("(b)"), Gio.DBusCallFlags.NONE, 500, None).unpack()[0]
+            kb = KWinBlur() if on and os.environ.get("DISPLAY") else None
+        except (GLib.Error, OSError, AttributeError):
+            kb = None
+        _kwin_blur.append(kb)
+    return _kwin_blur[0]
 
 
 def _has_owner(bus, name):

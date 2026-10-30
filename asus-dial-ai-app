@@ -342,7 +342,7 @@ class LevelTag(Gtk.DrawingArea, Ticker):
 
 
 class ModelSwitcher(Gtk.DrawingArea, Ticker):
-    """The four models as a pill track; the highlight slides, the wheel of the dial (and the mouse wheel) change it."""
+    """The models as a pill track; the highlight slides, the wheel of the dial (and the mouse wheel) change it."""
 
     H = 38
 
@@ -403,7 +403,7 @@ class ModelSwitcher(Gtk.DrawingArea, Ticker):
         elif ev.direction == Gdk.ScrollDirection.SMOOTH:
             d = 1 if ev.delta_y > 0.2 else -1 if ev.delta_y < -0.2 else 0
         if d:
-            self.on_select(core.MODEL_IDS[max(0, min(3, self.idx + d))])
+            self.on_select(core.MODEL_IDS[max(0, min(len(MODELS) - 1, self.idx + d))])
         return True
 
     def on_tip(self, w, x, y, kb, tip):
@@ -411,7 +411,7 @@ class ModelSwitcher(Gtk.DrawingArea, Ticker):
         if i is None:
             return False
         m = MODELS[i]
-        tip.set_text(f"{m['name']}  ({m['size']})")
+        tip.set_text(m["name"] if m["id"] == "custom" else f"{m['name']}  ({m['size']})")
         return True
 
     def on_draw(self, w, cr):
@@ -429,7 +429,7 @@ class ModelSwitcher(Gtk.DrawingArea, Ticker):
         lefts = self.lefts()
         p = self.cur_pos()
         i0 = int(math.floor(p))
-        i1 = min(3, i0 + 1)
+        i1 = min(len(MODELS) - 1, i0 + 1)
         f = p - i0
         x = lefts[i0] + (lefts[i1] - lefts[i0]) * f
         wd = self.widths[i0] + (self.widths[i1] - self.widths[i0]) * f
@@ -798,6 +798,10 @@ class SettingsWindow(Gtk.Window):
         sw = Gtk.ScrolledWindow(shadow_type=Gtk.ShadowType.IN, min_content_height=110)
         sw.add(tv)
         self.row(g, T("s_system"), sw, wide=True)
+        combo = self.app.custom_model_combo()
+        combo.get_child().set_text(self.cfg["custom_model"])
+        combo.connect("changed", lambda c: self.app.set_custom_model(c.get_active_text() or ""))
+        self.row(g, T("custom_text"), combo, wide=True)
         self.row(g, T("s_temp"), self.scale("temperature", 0, 1.5, 0.05, 2))
         self.row(g, T("s_tokens"), self.spin("max_tokens", 64, 8192, 64))
         self.row(g, T("s_think"), self.switch("show_thinking"))
@@ -857,6 +861,7 @@ class App:
         Gdk.set_program_class("asus-dial-ai")  # the X11 window class, so the launcher icon matches there too
         GLib.set_application_name(T("app"))
         self.cfg = core.Config()
+        core.set_custom_model(self.cfg["custom_model"])
         if args.model in core.MODEL_IDS:
             self.cfg.data["model"] = args.model
         self.style = Style(self.cfg)
@@ -897,7 +902,7 @@ class App:
         self.side_btn.get_style_context().add_class("flat")
         self.side_btn.connect("toggled", lambda b: self.sidebar.set_reveal_child(b.get_active()) or self.cfg.set("sidebar", b.get_active()))
         hb.pack_start(self.side_btn)
-        self.switcher = ModelSwitcher(self, self.set_model)
+        self.switcher = ModelSwitcher(self, lambda mid: self.set_model(mid, ask=True))
         hb.set_custom_title(self.switcher)
         sb = Gtk.Button(image=Gtk.Image.new_from_icon_name("preferences-system-symbolic", Gtk.IconSize.BUTTON), tooltip_text=T("settings"))
         sb.get_style_context().add_class("flat")
@@ -1209,8 +1214,43 @@ class App:
         return False
 
     # ----- model
-    def set_model(self, mid, quiet=False, present=False):
+    def custom_model_combo(self):
+        """A box to write an Ollama model name in, with the models already installed in its list."""
+        combo = Gtk.ComboBoxText.new_with_entry()
+        for name in self.engine.installed_models():
+            combo.append_text(name)
+        combo.get_child().set_placeholder_text("qwen3:8b")
+        return combo
+
+    def set_custom_model(self, tag):
+        tag = tag.strip()
+        self.cfg.set("custom_model", tag)
+        core.set_custom_model(tag)
+        self.ready.discard("custom")  # a different model behind the same name: it has to be made ready again
+
+    def ask_custom_model(self):
+        """Ask which model "custom" is. False if nothing was chosen."""
+        d = Gtk.MessageDialog(transient_for=self.win, modal=True, message_type=Gtk.MessageType.QUESTION,
+                              text=T("custom_title"), secondary_text=T("custom_text"))
+        d.add_button(T("cancel"), Gtk.ResponseType.CANCEL)
+        d.add_button(T("custom_ok"), Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        d.set_default_response(Gtk.ResponseType.OK)
+        combo = self.custom_model_combo()
+        combo.get_child().set_text(self.cfg["custom_model"])
+        combo.get_child().set_activates_default(True)
+        d.get_message_area().pack_start(combo, False, False, 0)
+        d.show_all()
+        ok = d.run() == Gtk.ResponseType.OK
+        tag = (combo.get_active_text() or "").strip()
+        d.destroy()
+        if ok and tag:
+            self.set_custom_model(tag)
+        return bool(ok and tag)
+
+    def set_model(self, mid, quiet=False, present=False, ask=False):
         if mid not in core.MODEL_IDS:
+            return
+        if mid == "custom" and ask and not self.cfg["custom_model"] and not self.ask_custom_model():
             return
         self.cfg.set("model", mid)
         self.switcher.set_active(core.MODEL_IDS.index(mid), animate=not quiet)
@@ -1221,7 +1261,7 @@ class App:
         self.hint.get_style_context().remove_class("hint")
         self.hint.get_style_context().add_class("warn" if m["backend"] == "airllm" else "hint")
         if not quiet:
-            self.toast(T("now_running", name=m["name"]))
+            self.toast(T("custom_none") if m["id"] == "custom" and not m["tag"] else T("now_running", name=m["name"]))
         if present:
             self.win.present()
 
@@ -1390,6 +1430,8 @@ class App:
         if self.busy:
             return
         m = model_by_id(self.cfg["model"])
+        if m["id"] == "custom" and not m["tag"] and not self.ask_custom_model():
+            return
         self.chat["messages"].append({"role": "user", "content": text})
         if not self.chat["title"]:
             self.chat["title"] = text.replace("\n", " ")[:42]
@@ -1727,7 +1769,7 @@ class App:
         for line in data.splitlines():
             cmd, _, arg = line.strip().partition(" ")
             if cmd == "open":
-                self.set_model(arg, quiet=False, present=True)
+                self.set_model(arg, quiet=False, present=True, ask=True)
             elif cmd == "model":
                 self.set_model(arg)
             elif cmd == "voice":
@@ -1754,7 +1796,7 @@ def main():
     import argparse
 
     p = argparse.ArgumentParser(description="ASUS Dial AI chat app")
-    p.add_argument("--model", default="", help="low | mid | high | max")
+    p.add_argument("--model", default="", help="low | mid | high | max | custom")
     p.add_argument("--voice", action="store_true", help="start in voice mode")
     p.add_argument("--screenshot", default="", help="save a picture of the window and quit (for testing)")
     args = p.parse_args()

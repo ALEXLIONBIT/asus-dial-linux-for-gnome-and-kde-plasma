@@ -35,7 +35,7 @@ def call(do, **args):
 PROMPT = """You can control the user's PC through the ASUS Dial. If the user asks for one of these actions, begin your answer with one line per action, \
 written exactly like [[volume {"mode":"set","value":30}]], then say in one short sentence what you did. Use only these tools, never invent others, \
 and use none when the user is just talking.
-- volume {"mode": "set|up|down|mute|unmute|toggle", "value": 0-100}
+- volume {"mode": "set|up|down|mute|unmute|toggle", "value": 0-150}   (above 100 only if asked: it may distort)
 - brightness {"mode": "set|up|down", "value": 0-100}   (screen brightness; set = absolute, up/down = change by value)
 - zoom {"percent": 150} or {"mode": "in|out|reset"}   (100 = normal; "zoom 50%" means 50% bigger = 150)
 - scroll {"direction": "up|down", "amount": 5}

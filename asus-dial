@@ -17,12 +17,13 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("PangoCairo", "1.0")
+gi.require_version("GdkX11", "3.0")
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import asus_dial_desktop as adesk  # brightness, night light, zoom and focus on GNOME or KDE Plasma
 
 _overlay_env = adesk.overlay_env()
 os.environ.update(_overlay_env)
-from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, PangoCairo
+from gi.repository import Gdk, GdkPixbuf, GdkX11, Gio, GLib, Gtk, Pango, PangoCairo
 import cairo
 
 if "GDK_SCALE" in _overlay_env:  # only for the dial's own windows: the apps it starts keep the desktop's scaling
@@ -95,7 +96,10 @@ STR = {
     "prev_window": ("🪟 Previous window", "🪟 Ventana anterior", "🪟 Finestra precedente"),
     "volume": ("Volume", "Volumen", "Volume"),
     "muted": (" (muted)", " (silenciado)", " (muto)"),
+    "boost": (" (boost)", " (boost)", " (boost)"),
     "brightness": ("☀ Brightness {b}%", "☀ Brillo {b}%", "☀ Luminosità {b}%"),
+    "ai_pick_custom": ("🤖 AI |{lvl}|: {name}  (click to open)", "🤖 IA |{lvl}|: {name}  (clic para abrir)", "🤖 AI |{lvl}|: {name}  (clic per aprire)"),
+    "ai_custom_none": ("choose it in the app", "elígelo en la app", "sceglilo nell'app"),
     "ai_pick": ("🤖 AI |{lvl}|: {name} ({size})  (click to open)", "🤖 IA |{lvl}|: {name} ({size})  (clic para abrir)",
                 "🤖 AI |{lvl}|: {name} ({size})  (clic per aprire)"),
     "robot_hi": ("Hi! Waking up\n{name}…", "¡Hola! Despertando a\n{name}…", "Ciao! Sto svegliando\n{name}…"),
@@ -167,6 +171,8 @@ FOCUS_CACHE_S = 0.3
 MAG_STEP = 0.25  # screen magnifier factor per zoom step
 MAG_MAX = 16.0
 KEYLIGHT_LEVELS = 3  # the ASUS keyboard backlight has levels 0..3
+VOLUME_BOOST_MAX = 1.5  # volume reached with a double click in Volume mode
+VOLUME_DOUBLE_CLICK_MS = 300
 DICE_SIDES = (4, 6, 8, 10, 12, 20)
 DICE_ROLL_S, DICE_SHOW_S = 1.6, 3.8
 TIMER_MAX = 180  # minutes
@@ -179,9 +185,11 @@ ALT_RELEASE_MS = 1200  # idle time after which the window switcher confirms
 RICKROLL_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 # AI mode: levels -> (script argument, model shown to the user, download size)
 AI_LEVELS = (("low", "MiniCPM5-2B", "1.6 GB"), ("mid", "Llama 3.1 8B", "4.9 GB"), ("high", "DeepSeek-R1-Distill-Qwen-14B", "9 GB"),
-             ("max", "Llama 3.3 70B (AirLLM)", "~140 GB"))
-AI_LEVEL_NAMES = {"en": ("Low", "Medium", "High", "MAX"), "es": ("Bajo", "Medio", "Alto", "MAX"), "it": ("Basso", "Medio", "Alto", "MAX")}
-AI_LEVEL_COLORS = ((0.24, 0.86, 0.52), (1.0, 0.76, 0.2), (1.0, 0.35, 0.3), "rainbow")  # name colour in the on-screen message
+             ("max", "Llama 3.3 70B (AirLLM)", "~140 GB"), ("custom", "", ""))  # custom: the model chosen in the AI app
+AI_LEVEL_NAMES = {"en": ("Low", "Medium", "High", "MAX", "Custom"), "es": ("Bajo", "Medio", "Alto", "MAX", "Propio"),
+                  "it": ("Basso", "Medio", "Alto", "MAX", "Custom")}
+AI_LEVEL_COLORS = ((0.24, 0.86, 0.52), (1.0, 0.76, 0.2), (1.0, 0.35, 0.3), "rainbow", (0.22, 0.74, 0.97))  # name colour in the on-screen message
+AI_APP_CONFIG = os.path.join(acfg.CONFIG_DIR, "ai-app.json")
 AI_FILE = os.path.expanduser("~/.config/asus-dial.ai")
 AI_SCRIPT = "asus-dial-ai-app"
 AI_SOCKET = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "asus-dial-ai.sock")
@@ -771,6 +779,7 @@ class Overlay(Gtk.Window):
         self.theme = acfg.theme_of({})
         self.anim_cfg = acfg.animation_of({})
         self.backdrop = None  # blurred snapshot of the screen behind the window (frosted-glass theme)
+        self.blur_rects = None  # what KWin is blurring behind the window (Plasma), see sync_blur
         self.frame_id = 0
         self.t0 = 0.0
         self.vis, self.vis_from, self.vis_t0, self.vis_dir, self.hiding = 0.0, 0.0, 0.0, 0, False  # appearance progress 0..1
@@ -815,7 +824,7 @@ class Overlay(Gtk.Window):
         if not was_visible:
             self.t0 = now
             # frosted glass: blur what is behind the window, taken just before it appears
-            can_blur = kind in ("menu", "osd") and th["blur"] > 0 and not remapped
+            can_blur = kind in ("menu", "osd") and th["blur"] > 0 and not remapped and adesk.kwin_blur() is None
             self.backdrop = ath.capture_backdrop(x, y, w, h, th["blur"]) if can_blur else None
         # the highlight slides from the old slice to the new one
         if kind == "menu":
@@ -934,6 +943,19 @@ class Overlay(Gtk.Window):
             self.draw_image(cr)
         else:
             ath.draw_osd(cr, self.theme, self.label, self.value, t, self.backdrop, anim=anim)
+        self.sync_blur(anim)
+
+    def sync_blur(self, anim):
+        """On Plasma KWin itself blurs what is behind the menu or the message (real frosted glass), in their shape,
+        following them while they zoom or slide in and out."""
+        kb = adesk.kwin_blur()
+        if kb is None or not isinstance(self.get_window(), GdkX11.X11Window):
+            return
+        shape = ath.blur_shape(self.kind, self.theme, self.msize, anim)
+        rects = ath.shape_rects(shape, self.get_scale_factor()) if shape else None
+        if rects != self.blur_rects:
+            self.blur_rects = rects
+            kb.set(self.get_window().get_xid(), rects)
 
     def draw_image(self, cr):
         iw, ih = self.image.get_width(), self.image.get_height()
@@ -998,6 +1020,8 @@ class Dial:
         self.alarm_proc = None
         self.speed = 1.0
         self.keylight_last = KEYLIGHT_LEVELS
+        self.volume_click_id, self.volume_before = 0, 1.0
+        self.volume_boost = self.get_volume()[0] > 1.0  # the volume survives a restart, and so does a boost
         self.alt_down, self.alt_id = False, 0
         self.desk = adesk.for_session(self.bus)
         self.focus_browser = False
@@ -1273,7 +1297,7 @@ class Dial:
         if tool >= CUSTOM_BASE:
             self.run_custom(tool, "cw" if d > 0 else "ccw", n)
         elif tool == VOLUME:
-            subprocess.run(["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", f"{2 * n}%{'+' if d > 0 else '-'}"])
+            subprocess.run(["wpctl", "set-volume", "-l", self.volume_limit(), "@DEFAULT_AUDIO_SINK@", f"{2 * n}%{'+' if d > 0 else '-'}"])
             self.show_volume()
         elif tool == BRIGHT:
             self.set_brightness(max(1, min(100, self.get_brightness() + (2 * n if d > 0 else -2 * n))))
@@ -1331,8 +1355,7 @@ class Dial:
             self.ui.tap(BTN_MIDDLE)
             self.show_label(L("middle_click"))
         elif tool == VOLUME:
-            subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
-            self.show_volume()
+            self.volume_click()
         elif tool == ZOOM:
             if self.in_browser():
                 self.ui.tap(KEY_0, ctrl=True)
@@ -1470,6 +1493,39 @@ class Dial:
                 continue
         return False
 
+    # Volume boost: the sound can go above 100%, up to VOLUME_BOOST_MAX (a quick double click on the wheel in Volume mode).
+    def volume_limit(self):
+        return str(VOLUME_BOOST_MAX) if self.volume_boost else "1.0"
+
+    def volume_click(self):
+        """One click mutes; a second one right after it switches the boost instead (so the mute waits for that moment)."""
+        if self.volume_click_id:
+            GLib.source_remove(self.volume_click_id)
+            self.volume_click_id = 0
+            self.set_volume_boost(not self.volume_boost)
+        else:
+            self.volume_click_id = GLib.timeout_add(VOLUME_DOUBLE_CLICK_MS, self.volume_single_click)
+
+    def volume_single_click(self):
+        self.volume_click_id = 0
+        subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+        self.show_volume()
+        return False
+
+    def set_volume_boost(self, on):
+        """On: the sound jumps to the maximum. Off: back to the level it had (lower, if you turned it down meanwhile)."""
+        sink = "@DEFAULT_AUDIO_SINK@"
+        v, _muted = self.get_volume()
+        if on:
+            self.volume_before = v
+            target = VOLUME_BOOST_MAX
+        else:
+            target = min(v, self.volume_before, 1.0)
+        self.volume_boost = on
+        subprocess.run(["wpctl", "set-mute", sink, "0"])
+        subprocess.run(["wpctl", "set-volume", "-l", self.volume_limit(), sink, f"{round(target * 100)}%"])
+        self.show_volume()
+
     def get_volume(self):
         try:
             out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True).stdout
@@ -1550,9 +1606,24 @@ class Dial:
         except OSError:
             pass
 
+    def ai_level_name(self):
+        """Name of the picked model; for the custom level the one chosen in the AI app ("" if none yet)."""
+        arg, name, _size = AI_LEVELS[self.ai_level]
+        if arg != "custom":
+            return name
+        try:
+            with open(AI_APP_CONFIG) as f:
+                return str(json.load(f).get("custom_model", "")).strip()
+        except (OSError, ValueError, AttributeError):
+            return ""
+
     def show_ai_label(self):
-        _arg, name, size = AI_LEVELS[self.ai_level]
-        text = L("ai_pick", lvl=AI_LEVEL_NAMES[_lang[0]][self.ai_level], name=name, size=size)
+        _arg, _name, size = AI_LEVELS[self.ai_level]
+        lvl, name = AI_LEVEL_NAMES[_lang[0]][self.ai_level], self.ai_level_name()
+        if _arg == "custom":
+            text = L("ai_pick_custom", lvl=lvl, name=name or L("ai_custom_none"))
+        else:
+            text = L("ai_pick", lvl=lvl, name=name, size=size)
         pre, lvl, post = text.split("|", 2)  # the level name is drawn in its own colour (MAX: rainbow)
         self.show_label([(pre, None), (lvl, AI_LEVEL_COLORS[self.ai_level]), (post, None)], self.ai_level / (len(AI_LEVELS) - 1))
 
@@ -1560,7 +1631,7 @@ class Dial:
         if self.ai_busy:
             return
         self.ai_busy = True
-        _arg, name, _size = AI_LEVELS[self.ai_level]
+        name = self.ai_level_name() or AI_LEVEL_NAMES[_lang[0]][self.ai_level]
         self.robot_win.play(make_robot_draw(L("robot_hi", name=name)), ROBOT_ANIM_S, size=(560, 520), fps=30,
                             on_done=lambda: setattr(self, "ai_busy", False))
         GLib.timeout_add(int(ROBOT_OPEN_AT_S * 1000), self.ai_open_app)
@@ -1917,10 +1988,15 @@ class Dial:
             subprocess.run(["wpctl", "set-mute", sink, {"mute": "1", "unmute": "0", "toggle": "toggle"}[mode]])
         elif mode == "set":
             subprocess.run(["wpctl", "set-mute", sink, "0"])
-            subprocess.run(["wpctl", "set-volume", "-l", "1.0", sink, f"{round(max(0, min(100, self._num(a, 'value'))))}%"])
+            value = round(max(0, min(VOLUME_BOOST_MAX * 100, self._num(a, "value"))))
+            if value > 100 and not self.volume_boost:
+                self.volume_before, self.volume_boost = self.get_volume()[0], True
+            subprocess.run(["wpctl", "set-volume", "-l", self.volume_limit(), sink, f"{value}%"])
+        elif mode == "boost":
+            self.set_volume_boost(a.get("state", "on") != "off")
         else:
             step = round(abs(self._num(a, "value", 10)))
-            subprocess.run(["wpctl", "set-volume", "-l", "1.0", sink, f"{step}%{'+' if mode == 'up' else '-'}"])
+            subprocess.run(["wpctl", "set-volume", "-l", self.volume_limit(), sink, f"{step}%{'+' if mode == 'up' else '-'}"])
         self.show_volume()
         v, muted = self.get_volume()
         return {"volume": round(v * 100), "muted": muted}
@@ -2104,7 +2180,9 @@ class Dial:
 
     def show_volume(self):
         v, muted = self.get_volume()
-        self.show_label(f"{'🔇' if muted else '🔊'} {L('volume')} {round(v * 100)}%" + (L("muted") if muted else ""), v)
+        top = VOLUME_BOOST_MAX if self.volume_boost else 1.0
+        self.show_label(f"{'🔇' if muted else '🔊'} {L('volume')} {round(v * 100)}%" + (L("boost") if self.volume_boost else "") +
+                        (L("muted") if muted else ""), min(1.0, v / top))
 
     def show_brightness(self):
         b = self.get_brightness()

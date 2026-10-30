@@ -3,19 +3,23 @@
 Used by the driver (asus-dial) for the real thing and by asus-dial-manager for the live preview,
 so what you see in the settings app is what you get on the dial.
 
-Themes (see asus_dial_config.DEFAULT_THEME): plain color, image, rainbow and Halloween backgrounds,
-plus blur (frosted glass), glow, glossy reflection, shadow and sparkles.
+Themes (see asus_dial_config.DEFAULT_THEME): plain color, image, rainbow, Halloween, Christmas and Plasma
+backgrounds, plus blur (frosted glass), glow, glossy reflection, shadow and sparkles.
 """
 import colorsys
+import configparser
 import math
+import os
 import random
+import time
 
 import gi
 
 gi.require_version("Gdk", "3.0")
+gi.require_version("Gtk", "3.0")
 gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, Pango, PangoCairo
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo
 import cairo
 
 MENU_PAD, MENU_PAD_HALLOWEEN = 50, 110
@@ -30,6 +34,214 @@ def rgb(hex_color, default=(0.5, 0.5, 0.5)):
         return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
     except ValueError:
         return default
+
+
+# ------------------------------------------------------------------ Plasma theme: the colors of the desktop
+# Breeze's own colors, for when the desktop tells only "light" or "dark" (GNOME, or a forced style on Plasma)
+BREEZE = {"dark": {"bg": (0.125, 0.137, 0.149), "view": (0.078, 0.086, 0.094), "fg": (0.988, 0.988, 0.988)},
+          "light": {"bg": (0.937, 0.941, 0.945), "view": (0.988, 0.988, 0.988), "fg": (0.137, 0.149, 0.161)}}
+BREEZE_ACCENT = (0.239, 0.682, 0.914)
+KDEGLOBALS = os.path.expanduser("~/.config/kdeglobals")
+_system_look = {"t": -10.0, "mtime": None, "look": None}
+
+
+def _kde_color(cfg, section, key):
+    try:
+        r, g, b = (int(v) for v in cfg.get(section, key).split(",")[:3])
+        return r / 255, g / 255, b / 255
+    except (configparser.Error, ValueError):
+        return None
+
+
+def _luma(c):
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def _read_system_look():
+    """{"dark": bool, "accent": rgb, "scheme": {bg, view, fg} or None} of the running desktop."""
+    if "kde" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower() and os.path.exists(KDEGLOBALS):
+        cfg = configparser.ConfigParser(interpolation=None, strict=False)
+        cfg.optionxform = str
+        try:
+            cfg.read(KDEGLOBALS)
+        except configparser.Error:
+            cfg = None
+        if cfg is not None:
+            bg, view, fg = (_kde_color(cfg, f"Colors:{s}", k) for s, k in
+                            (("Window", "BackgroundNormal"), ("View", "BackgroundNormal"), ("Window", "ForegroundNormal")))
+            accent = _kde_color(cfg, "General", "AccentColor") or _kde_color(cfg, "Colors:Selection", "BackgroundNormal")
+            if bg and fg:
+                return {"dark": _luma(bg) < 0.5, "accent": accent or BREEZE_ACCENT, "scheme": {"bg": bg, "view": view or bg, "fg": fg}}
+            # no colors written: Plasma's default, Breeze (light)
+            return {"dark": False, "accent": accent or BREEZE_ACCENT, "scheme": None}
+    # anywhere else (GNOME too): the desktop portal tells light / dark and the accent color
+    look = {"dark": True, "accent": BREEZE_ACCENT, "scheme": None}
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+        ask = lambda key: bus.call_sync("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+                                        "org.freedesktop.portal.Settings", "ReadOne", GLib.Variant("(ss)", ("org.freedesktop.appearance", key)),
+                                        GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, 300, None).unpack()[0]
+        look["dark"] = ask("color-scheme") != 2  # 1 = dark, 2 = light, 0 = no preference (Breeze dark then)
+        accent = tuple(ask("accent-color"))
+        if len(accent) == 3 and all(0 <= c <= 1 for c in accent):
+            look["accent"] = accent
+    except (GLib.Error, TypeError, ValueError):
+        pass
+    return look
+
+
+def plasma_palette(mode="auto"):
+    """bg, view, fg and accent colors of the Plasma theme. mode: auto (the desktop's look, light or dark), light, dark.
+    The desktop is asked again at most once a second, so switching it to light or dark shows up on the dial by itself."""
+    now = time.monotonic()
+    try:
+        mtime = os.stat(KDEGLOBALS).st_mtime
+    except OSError:
+        mtime = None
+    if _system_look["look"] is None or now - _system_look["t"] > 1.0 and (mtime != _system_look["mtime"] or now - _system_look["t"] > 3.0):
+        _system_look.update(t=now, mtime=mtime, look=_read_system_look())
+    look = _system_look["look"]
+    style = "dark" if look["dark"] else "light"
+    if mode in ("light", "dark"):
+        style = mode
+    colors = look["scheme"] if look["scheme"] and look["dark"] == (style == "dark") else BREEZE[style]
+    return {**colors, "accent": look["accent"], "dark": style == "dark"}
+
+
+def theme_colors(theme):
+    """(text, accent) colors of a theme: the user's, or the desktop's ones for the Plasma theme."""
+    if theme.get("bg_type") == "plasma":
+        pal = plasma_palette(theme.get("plasma_mode", "auto"))
+        return pal["fg"], pal["accent"]
+    return rgb(theme["text"], (1, 1, 1)), rgb(theme["accent"], (0.25, 0.55, 1.0))
+
+
+# Breeze icons for the built-in modes and the messages (the emoji stays where the icon theme has none)
+PLASMA_ICONS = {
+    "↕": ("transform-move-vertical", "go-up"), "🔊": ("audio-volume-high",), "🔉": ("audio-volume-medium",),
+    "🔈": ("audio-volume-low",), "🔇": ("audio-volume-muted",), "☀": ("brightness-high", "display-brightness"),
+    "🔍": ("zoom-in",), "▶": ("media-playback-start",), "⏸": ("media-playback-pause",), "🗂": ("tab-duplicate", "tab-new"),
+    "↔": ("object-flip-horizontal", "transform-move-horizontal"), "🏠": ("go-home", "user-home"), "⏻": ("system-shutdown",),
+    "🎲": ("roll", "games-config-board"), "⏲": ("chronometer", "alarm-symbolic", "clock"), "⏩": ("media-seek-forward", "media-skip-forward"),
+    "🌙": ("weather-clear-night", "redshift-status-on"), "🪟": ("window", "preferences-system-windows"),
+    "🔎": ("edit-find",), "⌨": ("input-keyboard-brightness", "input-keyboard"), "🌐": ("globe", "preferences-desktop-locale"),
+    "✨": ("games-highscores", "starred", "star-shape"), "🤖": ("dialog-messages", "im-user"),
+    "🎮": ("preferences-desktop-display-randr", "video-display"), "😴": ("system-suspend",),
+}
+_icon_themes, _icons = {}, {}
+
+
+def plasma_icon(cr, emoji, size, pal):
+    """The Breeze (or the desktop's) icon for an emoji, as a cairo surface in the text color, or None."""
+    names = PLASMA_ICONS.get(emoji)
+    if not names:
+        return None
+    scale = max(1, round(cr.get_target().get_device_scale()[0]))
+    key = (emoji, size, scale, pal["fg"], pal["dark"])
+    if key not in _icons:
+        style = "breeze-dark" if pal["dark"] else "breeze"
+        if style not in _icon_themes:
+            th = Gtk.IconTheme.new()
+            if os.path.isdir(f"/usr/share/icons/{style}"):
+                th.set_custom_theme(style)
+            else:
+                th = Gtk.IconTheme.get_default()
+            _icon_themes[style] = th
+        surf = None
+        # the monochrome (-symbolic) variant first: GTK paints it in the theme's text color
+        wanted = [v for n in names for v in (n + "-symbolic", n)]
+        info = _icon_themes[style].choose_icon_for_scale(wanted, size, scale, Gtk.IconLookupFlags.FORCE_SIZE)
+        if info is not None:
+            try:
+                fg = Gdk.RGBA(*pal["fg"], 1.0)
+                pixbuf, _symbolic = info.load_symbolic(fg, None, None, None)
+                surf = Gdk.cairo_surface_create_from_pixbuf(pixbuf, scale, None)
+            except GLib.Error:
+                surf = None
+        _icons[key] = surf
+    return _icons[key]
+
+
+def _paint_icon(cr, surf, size, x, y):
+    """Draw an icon surface centred on x, y."""
+    cr.save()
+    cr.set_source_surface(surf, round(x - size / 2), round(y - size / 2))
+    cr.paint()
+    cr.restore()
+
+
+def blur_shape(kind, theme, msize, anim=None):
+    """What the compositor should blur behind a menu / message window: ("circle", cx, cy, r) or ("rrect", x, y, w, h, r),
+    following the appear/leave transition; None when the theme wants no blur."""
+    if theme.get("blur", 0) <= 0 or kind not in ("menu", "osd"):
+        return None
+    if kind == "menu":
+        pad = menu_pad(theme)
+        W = msize + 2 * pad
+        sc, _rot, dy = transition_geometry(*anim, W) if anim else (1.0, 0.0, 0.0)
+        return ("circle", W / 2, W / 2 + dy, (msize / 2 - 5) * sc)
+    pad = osd_pad(theme)
+    W, Hh = OSD_W + 2 * pad, OSD_H + 2 * pad
+    sc, _rot, dy = transition_geometry(*anim, Hh, osd=True) if anim else (1.0, 0.0, 0.0)
+    cx, cy = W / 2, Hh * 0.7  # the point the message zooms around (see draw_osd)
+    x, y = cx + (pad - cx) * sc, cy + (pad - cy) * sc + dy
+    return ("rrect", x, y, OSD_W * sc, OSD_H * sc, 22 * sc)
+
+
+def shape_rects(shape, scale):
+    """The shape as rectangles (x, y, w, h) in device pixels, one per pixel row where it is curved."""
+    out = []
+    if shape[0] == "circle":
+        _k, cx, cy, r = (shape[0], *(v * scale for v in shape[1:]))
+        for y in range(int(cy - r), int(math.ceil(cy + r))):
+            d = r * r - (y + 0.5 - cy) ** 2
+            if d > 0:
+                half = math.sqrt(d)
+                out.append((int(round(cx - half)), y, max(1, int(round(2 * half))), 1))
+        return out
+    _k, x, y, w, h, r = (shape[0], *(v * scale for v in shape[1:]))
+    x, y, w, h = int(round(x)), int(round(y)), int(round(w)), int(round(h))
+    r = max(0, min(int(r), w // 2, h // 2))
+    for i in range(r):  # the rounded rows, top and bottom
+        inset = int(round(r - math.sqrt(max(0.0, r * r - (r - i - 0.5) ** 2))))
+        out.append((x + inset, y + i, w - 2 * inset, 1))
+        out.append((x + inset, y + h - 1 - i, w - 2 * inset, 1))
+    out.append((x, y + r, w, h - 2 * r))
+    return out
+
+
+def _plasma_ring(cr, cx, cy, r_disc, r_in, pal, op):
+    """Breeze-style disc: window color, the view color in the middle, hairline frames."""
+    cr.set_source_rgba(*pal["bg"], op)
+    cr.paint()
+    g = cairo.LinearGradient(0, cy - r_disc, 0, cy + r_disc)  # the faint top-lit gradient of Plasma's surfaces
+    g.add_color_stop_rgba(0, 1, 1, 1, 0.05 if pal["dark"] else 0.25)
+    g.add_color_stop_rgba(1, 1, 1, 1, 0)
+    cr.set_source(g)
+    cr.paint()
+    cr.new_path()
+    cr.arc(cx, cy, r_in - 6, 0, 2 * math.pi)
+    cr.set_source_rgba(*pal["view"], min(1.0, op + 0.1))
+    cr.fill_preserve()
+    cr.set_source_rgba(*pal["fg"], 0.12)
+    cr.set_line_width(1)
+    cr.stroke()
+
+
+def _plasma_frame(cr, cx, cy, r_disc, pal):
+    cr.new_path()
+    cr.arc(cx, cy, r_disc - 0.5, 0, 2 * math.pi)
+    cr.set_source_rgba(*pal["fg"], 0.2 if pal["dark"] else 0.25)
+    cr.set_line_width(1)
+    cr.stroke()
+
+
+def _pill(cr, x, y, w, h):
+    r = h / 2
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, math.pi / 2)
+    cr.arc(x + r, y + r, r, math.pi / 2, 3 * math.pi / 2)
+    cr.close_path()
 
 
 def is_animated(theme):
@@ -78,6 +290,20 @@ def sel_interp(frm, to, n, u, ease_name):
     return (frm + d * ease(ease_name, u)) % n
 
 
+def transition_geometry(kind, p, ease_name, h, osd=False):
+    """(scale, rotation, dy) of the picture at progress p of a transition (the fade and fan ones keep it in place)."""
+    if kind == "none" or p >= 1.0:
+        return 1.0, 0.0, 0.0
+    p = max(0.0, p)
+    e = ease(ease_name, p)
+    if kind in ("zoom", "bounce", "spin"):
+        sc = (0.55 + 0.45 * e) if kind == "zoom" else ((0.25 + 0.75 * ease("back", p)) if kind == "bounce" else 0.5 + 0.5 * e)
+        return max(0.01, sc), (1 - e) * -math.pi / 2 if kind == "spin" else 0.0, 0.0
+    if kind == "slide":
+        return 1.0, 0.0, (1 - e) * h * (0.18 if osd else 0.08)
+    return 1.0, 0.0, 0.0
+
+
 def draw_transition(cr, kind, p, ease_name, w, h, cx, cy, draw, osd=False):
     """Draw draw(cr) while it appears (p going 0 -> 1) or goes away (p going 1 -> 0)."""
     if kind == "none" or p >= 1.0:
@@ -85,6 +311,7 @@ def draw_transition(cr, kind, p, ease_name, w, h, cx, cy, draw, osd=False):
         return
     p = max(0.0, p)
     e = ease(ease_name, p)
+    sc, rot, dy = transition_geometry(kind, p, ease_name, h, osd)
     alpha = max(0.0, min(1.0, e if kind in ("fade", "slide", "zoom", "spin") else p * 2.2))
     cr.save()
     cr.push_group()
@@ -97,14 +324,12 @@ def draw_transition(cr, kind, p, ease_name, w, h, cx, cy, draw, osd=False):
             cr.close_path()
         cr.clip()
     elif kind in ("zoom", "bounce", "spin"):
-        sc = (0.55 + 0.45 * e) if kind == "zoom" else ((0.25 + 0.75 * ease("back", p)) if kind == "bounce" else 0.5 + 0.5 * e)
         cr.translate(cx, cy)
-        if kind == "spin":
-            cr.rotate((1 - e) * -math.pi / 2)
-        cr.scale(max(0.01, sc), max(0.01, sc))
+        cr.rotate(rot)
+        cr.scale(sc, sc)
         cr.translate(-cx, -cy)
     elif kind == "slide":
-        cr.translate(0, (1 - e) * h * (0.18 if osd else 0.08))
+        cr.translate(0, dy)
     draw(cr)
     cr.pop_group_to_source()
     cr.paint_with_alpha(alpha)
@@ -634,8 +859,9 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
     cx = cy = pad + R
     Wd = msize + 2 * pad
     framed = theme["bg_type"] in THEMED
-    tc = rgb(theme["text"], (1, 1, 1))
-    accent = rgb(theme["accent"], (0.25, 0.55, 1.0))
+    tc, accent = theme_colors(theme)
+    plasma = theme["bg_type"] == "plasma"
+    pal = plasma_palette(theme.get("plasma_mode", "auto")) if plasma else None
     r_disc, r_out, r_in = R - 5, R - 10, 105
     r_txt = r_in + 0.53 * (r_out - r_in)
     n = max(1, len(items))
@@ -673,17 +899,27 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
         _halloween_disc(cr, cx, cy, r_disc, t, theme["speed"], op)
     elif kind == "christmas":
         _xmas_disc(cr, cx, cy, r_disc, t, theme["speed"], op)
+    elif plasma:
+        _plasma_ring(cr, cx, cy, r_disc, r_in, pal, op)
     else:
         cr.set_source_rgba(*rgb(theme["bg_color"], (0.08, 0.08, 0.1)), op)
         cr.paint()
     step = 2 * math.pi / n
     for i in range(n):  # slices
         a0 = -math.pi / 2 + (i - 0.5) * step
+        if plasma:  # Plasma keeps it airy: hairline separators instead of filled slices
+            cr.new_path()
+            cr.move_to(cx + (r_in + 4) * math.cos(a0), cy + (r_in + 4) * math.sin(a0))
+            cr.line_to(cx + (r_out - 4) * math.cos(a0), cy + (r_out - 4) * math.sin(a0))
+            cr.set_source_rgba(*tc, 0.08)
+            cr.set_line_width(1)
+            cr.stroke()
+            continue
         cr.new_path()
         cr.arc(cx, cy, r_out, a0 + 0.02, a0 + step - 0.02)
         cr.arc_negative(cx, cy, r_in, a0 + step - 0.02, a0 + 0.02)
         cr.close_path()
-        cr.set_source_rgba(*tc, 0.07 if kind not in THEMED else 0.05)
+        cr.set_source_rgba(*tc, 0.04 if plasma else 0.07 if kind not in THEMED else 0.05)
         cr.fill()
     a0 = -math.pi / 2 + (sp - 0.5) * step  # the highlighted slice (it can sit between two slices while it slides)
     cr.new_path()
@@ -697,8 +933,21 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
             cr.set_source_rgba(*gc, al * (0.4 + theme["glow_strength"]))
             cr.set_line_width(lw)
             cr.stroke_preserve()
-    cr.set_source_rgba(*accent, 0.95)
-    cr.fill()
+    if plasma:  # Breeze's selection: a tinted fill with a solid accent frame, plus an indicator line on the rim
+        cr.set_source_rgba(*accent, 0.3 if pal["dark"] else 0.22)
+        cr.fill_preserve()
+        cr.set_source_rgba(*accent, 1)
+        cr.set_line_width(1.5)
+        cr.stroke()
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_line_width(4)
+        cr.new_path()
+        cr.arc(cx, cy, r_disc - 4, a0 + step * 0.22, a0 + step * 0.78)
+        cr.stroke()
+        cr.set_line_cap(cairo.LINE_CAP_BUTT)
+    else:
+        cr.set_source_rgba(*accent, 0.95)
+        cr.fill()
     if theme["reflection"] > 0:  # glossy highlight on the upper part
         k = theme["reflection"]
         cr.save()
@@ -725,11 +974,23 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
         am = -math.pi / 2 + i * 2 * math.pi / n
         tx, ty = cx + r_txt * math.cos(am), cy + r_txt * math.sin(am)
         cr.set_source_rgba(*tc, 1)
-        text(cr, icon, 20, tx, ty - 11)
+        surf = plasma_icon(cr, icon, 24, pal) if plasma else None
+        if surf:
+            _paint_icon(cr, surf, 24, tx, ty - 10)
+        else:
+            text(cr, icon, 20, tx, ty - 11)
         text(cr, name, 9, tx, ty + 17)
     if items:
+        icon, name = items[min(sel, len(items) - 1)]
+        surf = plasma_icon(cr, icon, 48, pal) if plasma else None
         cr.set_source_rgba(*tc, 0.92)
-        text(cr, items[min(sel, len(items) - 1)][1], 13, cx, cy)
+        if surf:  # Plasma: the chosen mode big in the middle, like its OSDs
+            _paint_icon(cr, surf, 48, cx, cy - 14)
+            text(cr, name, 12, cx, cy + 32)
+        else:
+            text(cr, name, 13, cx, cy)
+    if plasma:
+        _plasma_frame(cr, cx, cy, r_disc, pal)
     cr.restore()
 
     if framed:
@@ -752,9 +1013,9 @@ def _osd_body(cr, theme, label, value, t, backdrop):
     pad = osd_pad(theme)
     w, h, r = OSD_W, OSD_H, 22
     x0, y0 = pad, pad
-    tc = rgb(theme["text"], (1, 1, 1))
-    accent = rgb(theme["accent"], (0.25, 0.55, 1.0))
+    tc, accent = theme_colors(theme)
     kind = theme["bg_type"]
+    pal = plasma_palette(theme.get("plasma_mode", "auto")) if kind == "plasma" else None
 
     def box():
         cr.new_sub_path()
@@ -804,6 +1065,14 @@ def _osd_body(cr, theme, label, value, t, backdrop):
         cr.paint()
         _sparkles(cr, x0 + w / 2, y0 + h / 2, w * 0.45, t, theme["speed"], color=XMAS_GOLD, count=14, seed=2)
         _snowfall(cr, x0, y0, w, h, t, theme["speed"], count=16, seed=3, size=0.9)
+    elif pal:
+        cr.set_source_rgba(*pal["bg"], op)
+        cr.paint()
+        g = cairo.LinearGradient(0, y0, 0, y0 + h)
+        g.add_color_stop_rgba(0, 1, 1, 1, 0.05 if pal["dark"] else 0.25)
+        g.add_color_stop_rgba(1, 1, 1, 1, 0)
+        cr.set_source(g)
+        cr.paint()
     else:
         cr.set_source_rgba(*rgb(theme["bg_color"], (0.08, 0.08, 0.1)), op)
         cr.paint()
@@ -821,17 +1090,39 @@ def _osd_body(cr, theme, label, value, t, backdrop):
 
     cr.set_source_rgba(*tc, 1)
     has_bar = value is not None
+    icon_surf, tx = None, x0 + 24
+    if pal and isinstance(label, str):  # Plasma's OSD: the icon on the left, then the text and the bar
+        first, _sp, rest = label.partition(" ")
+        icon_surf = plasma_icon(cr, first, 40, pal) if rest else None
+        if icon_surf:
+            _paint_icon(cr, icon_surf, 40, x0 + 46, y0 + h / 2)
+            label, tx = rest, x0 + 82
     if isinstance(label, list):
         text_segments(cr, label, 15, x0 + 24, y0 + (34 if has_bar else h / 2), tc, t)
     else:
-        text(cr, label, 15, x0 + 24, y0 + (34 if has_bar else h / 2), center=False)
-    if has_bar:
+        text(cr, label, 15, tx, y0 + (34 if has_bar else h / 2), center=False)
+    if has_bar and pal:  # Plasma's OSD: a thin rounded trough with the accent inside
+        v = max(0.0, min(1.0, value))
+        bw = x0 + w - 24 - tx
+        _pill(cr, tx, y0 + 68, bw, 8)
+        cr.set_source_rgba(*tc, 0.15)
+        cr.fill()
+        if v > 0:
+            _pill(cr, tx, y0 + 68, max(8.0, bw * v), 8)
+            cr.set_source_rgba(*accent, 1)
+            cr.fill()
+    elif has_bar:
         cr.set_source_rgba(*tc, 0.2)
         cr.rectangle(x0 + 24, y0 + 66, w - 48, 12)
         cr.fill()
         cr.set_source_rgba(*accent, 1)
         cr.rectangle(x0 + 24, y0 + 66, (w - 48) * max(0.0, min(1.0, value)), 12)
         cr.fill()
+    if pal:
+        box()
+        cr.set_source_rgba(*pal["fg"], 0.2 if pal["dark"] else 0.25)
+        cr.set_line_width(1)
+        cr.stroke()
     if kind == "halloween":
         _halloween_osd_frame(cr, pad, w + 2 * pad, h + 2 * pad, t, theme["speed"])
     elif kind == "christmas":

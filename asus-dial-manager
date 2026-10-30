@@ -98,6 +98,14 @@ STR = {
     "bg_rainbow": ("Rainbow ✨", "Arcoíris ✨", "Arcobaleno ✨"),
     "bg_halloween": ("Halloween 🎃", "Halloween 🎃", "Halloween 🎃"),
     "bg_christmas": ("Christmas 🎄", "Navidad 🎄", "Natale 🎄"),
+    "bg_plasma": ("Plasma 💠 (desktop colors)", "Plasma 💠 (colores del escritorio)", "Plasma 💠 (colori del desktop)"),
+    "plasma_mode": ("Plasma style", "Estilo Plasma", "Stile Plasma"),
+    "plasma_auto": ("Automatic: follows the system (light / dark)", "Automático: sigue al sistema (claro / oscuro)",
+                    "Automatico: segue il sistema (chiaro / scuro)"),
+    "plasma_light": ("Light", "Claro", "Chiaro"),
+    "plasma_dark": ("Dark", "Oscuro", "Scuro"),
+    "plasma_hint": ("Colors and accent come from the desktop.", "Los colores y el acento vienen del escritorio.",
+                    "Colori e accento arrivano dal desktop."),
     "opacity": ("Opacity", "Opacidad", "Opacità"),
     "choose_image": ("Choose and crop an image…", "Elegir y recortar una imagen…", "Scegli e ritaglia un'immagine…"),
     "no_image": ("(no image yet)", "(todavía sin imagen)", "(ancora nessuna immagine)"),
@@ -459,11 +467,22 @@ class Manager(Gtk.Window):
         # background type
         label("bg_type")
         bg = Gtk.ComboBoxText()
-        for kind, key in (("color", "bg_color"), ("image", "bg_image"), ("rainbow", "bg_rainbow"), ("halloween", "bg_halloween"), ("christmas", "bg_christmas")):
+        for kind, key in (("color", "bg_color"), ("image", "bg_image"), ("rainbow", "bg_rainbow"), ("halloween", "bg_halloween"), ("christmas", "bg_christmas"),
+                          ("plasma", "bg_plasma")):
             bg.append(kind, self.tr(key))
         bg.connect("changed", lambda c: self.set_theme("bg_type", c.get_active_id()))
         add(bg)
         self.w["bg_type"] = bg
+        row[0] += 1
+        # Plasma: light / dark, or whatever the desktop uses
+        label("plasma_mode")
+        pm = Gtk.ComboBoxText()
+        for mode in ("auto", "light", "dark"):
+            pm.append(mode, self.tr("plasma_" + mode))
+        pm.set_tooltip_text(self.tr("plasma_hint"))
+        pm.connect("changed", lambda c: self.set_theme("plasma_mode", c.get_active_id()))
+        add(pm)
+        self.w["plasma_mode"] = pm
         row[0] += 1
         # color + opacity
         label("bg_color")
@@ -567,6 +586,8 @@ class Manager(Gtk.Window):
         self._loading = True
         th = self.theme
         self.w["bg_type"].set_active_id(th["bg_type"])
+        self.w["plasma_mode"].set_active_id(th["plasma_mode"])
+        self.update_look_sensitivity()
         for key in ("bg_color", "accent", "text", "glow_color"):
             rgba = Gdk.RGBA()
             rgba.parse(th[key])
@@ -583,10 +604,19 @@ class Manager(Gtk.Window):
         self.menu_area.queue_draw()
         self.osd_area.queue_draw()
 
+    def update_look_sensitivity(self):
+        """The Plasma background takes its colors from the desktop: its own controls on, the color ones off."""
+        plasma = self.theme["bg_type"] == "plasma"
+        self.w["plasma_mode"].set_sensitive(plasma)
+        for key in ("bg_color", "accent", "text"):
+            self.w[key].set_sensitive(not plasma)
+
     def set_theme(self, key, value):
         if self._loading:
             return
         self.theme[key] = value
+        if key == "bg_type":
+            self.update_look_sensitivity()
         self.backdrops.clear()
         self.cfg["theme"] = dict(self.theme)
         if self.save_id:

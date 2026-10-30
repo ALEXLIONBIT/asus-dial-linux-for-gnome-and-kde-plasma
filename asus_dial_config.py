@@ -35,7 +35,8 @@ BROWSER_ONLY_IDS = ("tabs", "find")
 
 # Look of the radial menu and of the on-screen messages (see asus_dial_theme.py for the drawing)
 DEFAULT_THEME = {
-    "bg_type": "color",        # color | image | rainbow | halloween | christmas
+    "bg_type": "color",        # color | image | rainbow | halloween | christmas | plasma
+    "plasma_mode": "auto",     # plasma background: auto (follows the desktop's light/dark look) | light | dark
     "bg_color": "#141419",
     "bg_opacity": 0.88,        # 0..1
     "bg_image": "",            # cropped PNG written by the manager
@@ -68,6 +69,8 @@ THEME_PRESETS = {
                   "glow_strength": 0.9, "reflection": 0.0, "shadow": True, "shadow_strength": 0.6, "sparkles": False},
     "christmas": {"bg_type": "christmas", "bg_opacity": 0.95, "accent": "#d62828", "text": "#fff8e7", "glow": True, "glow_color": "#ffd166",
                   "glow_strength": 0.7, "reflection": 0.12, "shadow": True, "shadow_strength": 0.6, "sparkles": False, "speed": 0.5},
+    "plasma": {"bg_type": "plasma", "plasma_mode": "auto", "bg_opacity": 0.6, "glow": False, "reflection": 0.0, "shadow": True,
+               "shadow_strength": 0.45, "sparkles": False, "blur": 14},
     "oled": {"bg_type": "color", "bg_color": "#000000", "bg_opacity": 1.0, "accent": "#7c5cff", "text": "#ffffff", "glow": False,
              "reflection": 0.0, "shadow": False, "sparkles": False},
     "forest": {"bg_type": "color", "bg_color": "#0a1c11", "bg_opacity": 0.94, "accent": "#2f9e5e", "text": "#e6f6ea", "glow": True,
@@ -86,7 +89,7 @@ PRESET_NAMES = {
     "neon": ("Neon", "Neón", "Neon"), "rainbow": ("Rainbow ✨", "Arcoíris ✨", "Arcobaleno ✨"),
     "sunset": ("Sunset", "Atardecer", "Tramonto"), "paper": ("Paper (light)", "Papel (claro)", "Carta (chiaro)"),
     "halloween": ("Halloween 🎃", "Halloween 🎃", "Halloween 🎃"),
-    "christmas": ("Christmas 🎄", "Navidad 🎄", "Natale 🎄"), "oled": ("OLED black", "Negro OLED", "Nero OLED"),
+    "christmas": ("Christmas 🎄", "Navidad 🎄", "Natale 🎄"), "plasma": ("Plasma 💠", "Plasma 💠", "Plasma 💠"), "oled": ("OLED black", "Negro OLED", "Nero OLED"),
     "forest": ("Forest 🌲", "Bosque 🌲", "Foresta 🌲"), "midnight": ("Midnight 🌙", "Medianoche 🌙", "Mezzanotte 🌙"),
     "ocean": ("Ocean 🌊", "Océano 🌊", "Oceano 🌊"), "sakura": ("Sakura 🌸", "Sakura 🌸", "Sakura 🌸"), "ember": ("Ember 🔥", "Brasa 🔥", "Brace 🔥"),
 }

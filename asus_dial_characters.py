@@ -511,8 +511,10 @@ class Welcome:
         return res
 
     def _bubble_colors(self):
-        th, accent = self.theme, ath.rgb(self.theme["accent"], (0.25, 0.55, 1.0))
-        text = ath.rgb(th["text"], (1, 1, 1))
+        th = self.theme
+        text, accent = ath.theme_colors(th)
+        if th["bg_type"] == "plasma":
+            return (*ath.plasma_palette(th["plasma_mode"])["bg"], 0.96), accent, text
         if self.halloween:
             return (0.16, 0.05, 0.24, 0.96), accent, text
         if self.christmas:

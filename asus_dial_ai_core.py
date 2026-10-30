@@ -45,10 +45,11 @@ MODELS = [
     dict(id="high", backend="ollama", name="DeepSeek-R1-Distill-Qwen-14B", tag="deepseek-r1:14b", size="9 GB", color="#ff5a4d"),
     dict(id="max", backend="airllm", name="Llama 3.3 70B", hf="unsloth/Llama-3.3-70B-Instruct", size="~140 GB",
          color="rainbow", download_gb=141, layers_gb=40),
+    dict(id="custom", backend="ollama", name="Custom", tag="", size="?", color="#38bdf8"),  # any Ollama model, see set_custom_model
 ]
 MODEL_IDS = [m["id"] for m in MODELS]
-LEVEL_NAMES = {"en": ("Low", "Medium", "High", "MAX"), "es": ("Bajo", "Medio", "Alto", "MAX"),
-               "it": ("Basso", "Medio", "Alto", "MAX")}
+LEVEL_NAMES = {"en": ("Low", "Medium", "High", "MAX", "Custom"), "es": ("Bajo", "Medio", "Alto", "MAX", "Propio"),
+               "it": ("Basso", "Medio", "Alto", "MAX", "Custom")}
 VOICE_FOR = {"en": "en_US-lessac-medium", "es": "es_ES-davefx-medium", "it": "it_IT-paola-medium"}
 # Ten voice presets. Each picks a Piper voice per language and a character: speed, pitch (1 = normal), volume,
 # expressiveness ("var", 1 = normal) and an effect. All of it can be tuned afterwards in the settings.
@@ -73,6 +74,13 @@ def preset_values(pid):
 
 def model_by_id(mid):
     return next((m for m in MODELS if m["id"] == mid), MODELS[0])
+
+
+def set_custom_model(tag):
+    """The Ollama name of the custom model: "qwen3:8b", "user/model", "hf.co/user/repo:Q4_K_M"..."""
+    m = model_by_id("custom")
+    m["tag"] = tag.strip()
+    m["name"] = m["tag"] or "Custom"
 
 
 # ---------------------------------------------------------------------------------------------- languages
@@ -127,6 +135,15 @@ STR = {
     "need_ollama": ("• Ollama, the local model runner (~1.4 GB, installed only for you, no sudo)",
                     "• Ollama, el ejecutor de modelos local (~1,4 GB, solo para tu usuario, sin sudo)",
                     "• Ollama, il programma che esegue i modelli in locale (~1,4 GB, solo per te, senza sudo)"),
+    "custom_title": ("Custom model", "Modelo propio", "Modello custom"),
+    "custom_text": ("Write the name of any Ollama model (qwen3:8b, gemma3:4b, hf.co/user/repo:Q4_K_M) or pick one you already have. "
+                    "If it is missing it is downloaded the first time you use it.",
+                    "Escribe el nombre de cualquier modelo de Ollama (qwen3:8b, gemma3:4b, hf.co/usuario/repo:Q4_K_M) o elige uno que ya tengas. "
+                    "Si falta, se descarga la primera vez que lo uses.",
+                    "Scrivi il nome di un qualsiasi modello di Ollama (qwen3:8b, gemma3:4b, hf.co/utente/repo:Q4_K_M) o scegline uno che hai già. "
+                    "Se manca, viene scaricato la prima volta che lo usi."),
+    "custom_none": ("No custom model chosen yet", "Todavía no has elegido un modelo propio", "Nessun modello custom scelto"),
+    "custom_ok": ("Use this model", "Usar este modelo", "Usa questo modello"),
     "need_model": ("• The model {name} ({size})", "• El modelo {name} ({size})", "• Il modello {name} ({size})"),
     "need_env": ("• A private Python with AirLLM and PyTorch (~5 GB)",
                  "• Un Python privado con AirLLM y PyTorch (~5 GB)", "• Un Python privato con AirLLM e PyTorch (~5 GB)"),
@@ -263,7 +280,7 @@ DEFAULTS = dict(
     system_prompt="", temperature=0.7, max_tokens=1024, max_tokens_max=192, show_thinking=True, enter_sends=True,
     tts=True, auto_speak=False, voice_lang="auto", stt_size="small", voice_preset="aurora", voice_speed=1.0, voice_pitch=1.0,
     voice_volume=1.0, voice_var=1.0, voice_fx="none", compression="4bit", delete_original=True,
-    sidebar=True, win_w=1100, win_h=760, dial_tools=True,
+    sidebar=True, win_w=1100, win_h=760, dial_tools=True, custom_model="",
 )
 
 
@@ -583,6 +600,13 @@ class Engine:
         except OSError:
             return False
 
+    def installed_models(self):
+        """Names of the models Ollama already has ([] while its server is not running)."""
+        try:
+            return [m["name"] for m in http_json("/api/tags", timeout=1).get("models", []) if m.get("name")]
+        except (OSError, ValueError):
+            return []
+
     def ollama_has(self, tag):
         try:
             return any(m.get("name", "").split(":")[0] == tag.split(":")[0] and
@@ -660,6 +684,12 @@ class Engine:
     def _cached_has(self, m):
         # server not running: look at the manifest on disk instead of starting it just to ask
         base = os.path.expanduser("~/.ollama/models/manifests")
+        if m["id"] == "custom":  # a name the user wrote: only the very same model counts, or it would be downloaded unasked
+            name, _, version = m["tag"].partition(":")
+            parts = name.split("/")
+            if "." not in parts[0]:
+                parts = ["registry.ollama.ai"] + (["library"] if len(parts) == 1 else []) + parts
+            return os.path.exists(os.path.join(base, *parts, version or "latest"))
         name = m["tag"].split(":")[0]
         return os.path.isdir(base) and any(name.split("/")[-1] in d for _r, ds, _f in os.walk(base) for d in ds) and \
             os.path.exists(os.path.join(base, "registry.ollama.ai"))

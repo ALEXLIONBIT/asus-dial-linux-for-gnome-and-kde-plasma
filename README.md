@@ -27,7 +27,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 | Mode | Rotate | Click |
 |---|---|---|
 | ↕ **Scroll** | scrolls the page | middle click |
-| 🔊 **Volume** | volume | mute |
+| 🔊 **Volume** | volume | click: mute; **double click: boost**, the sound jumps to 150% and the wheel can stay above 100% (double click again to go back) |
 | ☀ **Brightness** | screen brightness | – |
 | ⌨ **Keyboard** | keyboard backlight (levels 0–3) | off / back on |
 | 🌙 **Night light** | night light (1700–4700 K), turns on by itself | on / off |
@@ -41,7 +41,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 | ↔ **Arrows** | left / right arrow keys | Enter |
 | 🎲 **Dice** | picks the die (d4…d20) | rolls it, with an animation |
 | 🏠 **House** | tilts a picture (see below) | – |
-| 🤖 **AI** | picks the level: Low (MiniCPM5-2B), Medium (Llama 3.1 8B), High (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B with AirLLM, rainbow) | robot animation, then the **ASUS Dial AI** app opens with that model |
+| 🤖 **AI** | picks the level: Low (MiniCPM5-2B), Medium (Llama 3.1 8B), High (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B with AirLLM, rainbow), **Custom** (any Ollama model you choose) | robot animation, then the **ASUS Dial AI** app opens with that model |
 | ✨ **Rickroll** | – | a divine light show, then your default browser opens the video full screen |
 | 🌐 **Language** | cycles English → Español → Italiano (default: English) | shows the current language |
 | 🎮 **GPU** | picks one of the PC's graphics cards (only shown if the PC has two or more) | the card and whether it is integrated or dedicated; click makes your apps use it |
@@ -55,6 +55,8 @@ The kernel creates no input device for the dial. This program reads the raw data
 **Rickroll.** Click the dial in this mode: the screen dims, golden rays and sparkles fill it with heavenly light, the lyrics appear and, in a blinding white flash, your default browser opens a famous 1987 music video and puts it **full screen** (it presses `K` if autoplay was blocked, then `F`, so it needs a YouTube page; press `Esc` to leave). Change the video by editing `RICKROLL_URL` at the top of the `asus-dial` file.
 
 **AI.** Rotate to pick the level (*Low* in green, *Medium* in yellow, *High* in red, *MAX* in rainbow letters), click to open the **ASUS Dial AI** app with that model. While the app is open, the dial's wheel keeps changing the model. Everything runs **locally** (the internet is only used for downloads): *Low* = MiniCPM5-2B (1.6 GB), *Medium* = Llama 3.1 8B (4.9 GB), *High* = DeepSeek-R1-Distill-Qwen-14B (9 GB, thinks before answering), **MAX** = Llama 3.3 70B run layer by layer with [AirLLM](https://github.com/lyogavin/airllm) (about 140 GB to download, then ~40 GB on disk, and **very slow**: it is meant to prove a 70B fits on a small GPU, not to chat fast). The app (`asus-dial-ai-app`) is a ChatGPT-like window: chats in a sidebar (saved in `~/.local/share/asus-dial-ai/chats`), answers that stream in, code blocks with a copy button, the model's reasoning in a collapsible box, a **voice mode** with a living orb (you talk, it answers aloud; click the orb to interrupt; the model's reasoning is switched off there for faster answers), **10 voice presets** (Aurora, Marco, Nova, Atlas, Pixel, Robo, Whisper, Narrator, Giant, Echo) with sliders for speed, pitch, volume and expressiveness, and a speaker button to hear the answers of the normal chat too and a **settings window** to change theme, accent colour, text size, roundness, background, orb style, animations, system prompt, creativity, voice language and more. **Nothing needs to be installed by hand**: the first time you use something, the app tells you what it needs and its size, asks once, and then installs it for your user only (no sudo): Ollama in `~/.local/ollama`; for MAX and voice a private Python 3.12 in `~/.local/share/asus-dial-ai/venv` with AirLLM, PyTorch, Whisper (speech to text) and Piper (text to speech), obtained with [uv](https://github.com/astral-sh/uv) (checksum verified). Without a working GPU driver everything runs on the CPU, which is much slower. On an NVIDIA hybrid laptop with the GPU switched off, `sudo prime-select on-demand` and a reboot enable it.
+
+**Custom AI model.** After *MAX* there is a fifth level, **Custom**: it runs any model you want through Ollama. The first time you pick it the app asks for its name (`qwen3:8b`, `gemma3:4b`, `hf.co/user/repo:Q4_K_M`), or you can choose one you already have; change it whenever you like in *Settings → Chat*. If the model is missing, the app asks and downloads it the first time you write to it.
 
 
 **The AI controls the PC.** In the chat and in the voice mode you can ask for what the dial does: *"lower the brightness and zoom 50%"*, *"volume to 30"*, *"next tab"*, *"timer of 10 minutes"*, *"night light on"*, *"roll a d20"*, *"lock the screen"*, *"use the integrated GPU"*... (Italian, English and Spanish). Usual commands are understood by the app itself and run instantly; for other requests the model is told about the same functions. The app talks to the driver through the socket `$XDG_RUNTIME_DIR/asus-dial.sock` (one JSON line: `{"do":"brightness","args":{"mode":"set","value":40}}`; `status` tells the current values). Switch it off in the app settings (*The AI can control the PC*). Power off / reboot are deliberately not available.
@@ -76,7 +78,7 @@ The same program runs on both desktops and finds out by itself which one it is o
 | Night light | gsettings, schedule set to "all day" | KWin Night Light (`kwinrc`, mode *Always on*) |
 | Screen zoom | GNOME magnifier | KWin **Zoom** effect |
 | Which window has the focus (browser modes, Rickroll) | `xprop`: X11 windows only | a small **KWin script** that tells the dial over D-Bus: every window, **Wayland included** |
-| On-screen menu and messages | X11 window, scaled by GNOME | X11 window (XWayland) scaled with `GDK_SCALE` from Plasma's scale |
+| On-screen menu and messages | X11 window, scaled by GNOME | X11 window (XWayland) scaled with `GDK_SCALE` from Plasma's scale; real KWin blur behind it when the theme uses blur |
 
 On Plasma the browser modes (*Tabs*, *Find*) and the page zoom therefore know exactly when a browser has the focus, on Wayland too. Nothing is changed in Plasma's settings for good: the night light puts your own mode back when you turn it off, the KWin script is loaded only while the dial runs.
 
@@ -102,7 +104,7 @@ On **Arch / CachyOS / Manjaro** (with GNOME or KDE Plasma):
 sudo pacman -S --needed python-gobject python-cairo gtk3 wireplumber xorg-xprop xorg-xrdb libpulse xdg-utils curl zstd python-pillow
 ```
 
-On KDE Plasma, `kreadconfig6`/`kwriteconfig6` (night light, zoom step) come with Plasma itself, and `xrdb` tells the dial the screen scale.
+On KDE Plasma, `kreadconfig6`/`kwriteconfig6` (night light, zoom step) come with Plasma itself, and `kscreen-doctor` tells the dial the screen scale.
 
 ### 2. Permissions (once)
 
@@ -158,7 +160,7 @@ Open **ASUS Dial Manager** from the applications menu (or run `asus-dial-manager
 
 - **Modes tab:** tick or untick any built-in mode to show or hide it in the circular menu, change the order with *Move up / Move down*, and *Restore defaults* to bring everything back (your custom modes stay).
 - **Custom modes:** *Add custom mode…* creates a mode with a **name**, an **icon** (any emoji) and up to three actions made of keys: **click**, **rotate right** and **rotate left**. Examples: `p` (types the P key), `ctrl+shift+t`, or a series like `ctrl+c ctrl+v`. Use **Record** and press the keys on your keyboard to fill the field for you. Custom modes appear in the circular menu with the others (which grows if you have many).
-- **Appearance tab:** how the circular menu and the on-screen messages look, with a live preview drawn by the same code as the dial. Pick a **preset** (Default, Glass, Neon, Rainbow ✨, Sunset, Paper, Halloween 🎃, **Christmas 🎄**, OLED black, Forest, Midnight, Ocean, Sakura, Ember) and tweak anything: **background** (plain color with opacity, a **cropped image** of yours, a spinning **rainbow** with sparkles, or the **Halloween 🎃** scene with ghosts, tombstones, a dancing skeleton, pumpkins, bats, a spider and cobwebs), **blur** (frosted glass: a blurred snapshot of what is behind the menu, taken when it opens), colors of the selected slice and of the text, **glow**, **glossy reflection**, **shadow** and **sparkles**.
+- **Appearance tab:** how the circular menu and the on-screen messages look, with a live preview drawn by the same code as the dial. Pick a **preset** (Default, Glass, Neon, Rainbow ✨, Sunset, Paper, Halloween 🎃, **Christmas 🎄**, **Plasma 💠**, OLED black, Forest, Midnight, Ocean, Sakura, Ember) and tweak anything: **background** (plain color with opacity, a **cropped image** of yours, a spinning **rainbow** with sparkles, or the **Halloween 🎃** scene with ghosts, tombstones, a dancing skeleton, pumpkins, bats, a spider and cobwebs), **blur** (frosted glass: a blurred snapshot of what is behind the menu, taken when it opens), colors of the selected slice and of the text, **glow**, **glossy reflection**, **shadow** and **sparkles**. **Plasma 💠** looks like KDE's Breeze: on Plasma the menu and the messages are **real frosted glass** (KWin blurs what is behind them, like Plasma's own panels, also while they zoom in and out), with **Breeze icons** instead of emoji, the chosen mode big in the middle, and messages laid out like Plasma's OSD (icon, text, thin bar). It takes its colors and accent color from the desktop: *Plasma style* follows the system's light or dark look by itself (it changes as soon as you switch the desktop), or stays *Light* or *Dark* if you choose so. It works on GNOME too (light/dark and accent from the desktop portal).
 - **Animations tab:** the menu and the on-screen messages **fade in/out smoothly**. Choose the **effect** for when they appear and for when they go away (none, fade, zoom, slide up, bounce, spin, or *fan*, a clock-style wipe), how long each takes (0–800 ms; 0 = instant), the **motion curve** (smooth, linear, overshoot, elastic, bouncy), whether the highlight **slides** from one slice to the next, and the transition used when you change tab in this app (crossfade, slide, cover, reveal…) or turn the app's animations off. A looping preview shows your choices.
 - **General tab:** language of the dial and of the app, and everything about the **welcome** (see below), with a live preview.
 
@@ -238,7 +240,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | Modo | Girar | Clic |
 |---|---|---|
 | ↕ **Desplazar** | desplaza la página | clic central |
-| 🔊 **Volumen** | volumen | silenciar |
+| 🔊 **Volumen** | volumen | clic: silenciar; **doble clic: boost**, el sonido salta al 150 % y la rueda puede seguir por encima del 100 % (otro doble clic para volver) |
 | ☀ **Brillo** | brillo de la pantalla | – |
 | ⌨ **Teclado** | retroiluminación del teclado (niveles 0–3) | apaga / vuelve a encender |
 | 🌙 **Luz nocturna** | luz nocturna (1700–4700 K), se enciende sola | enciende / apaga |
@@ -252,7 +254,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | ↔ **Flechas** | teclas de flecha izquierda / derecha | Intro |
 | 🎲 **Dado** | elige el dado (d4…d20) | lo tira, con animación |
 | 🏠 **Casa** | inclina una imagen (ver abajo) | – |
-| 🤖 **IA** | elige el nivel: Bajo (MiniCPM5-2B), Medio (Llama 3.1 8B), Alto (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B con AirLLM, arcoíris) | animación de un robot y se abre la app **ASUS Dial AI** con ese modelo |
+| 🤖 **IA** | elige el nivel: Bajo (MiniCPM5-2B), Medio (Llama 3.1 8B), Alto (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B con AirLLM, arcoíris), **Propio** (el modelo de Ollama que elijas) | animación de un robot y se abre la app **ASUS Dial AI** con ese modelo |
 | ✨ **Rickroll** | – | un espectáculo de luz divina y luego tu navegador predeterminado abre el vídeo a pantalla completa |
 | 🌐 **Idioma** | cambia entre English → Español → Italiano (por defecto: English) | muestra el idioma actual |
 | 🎮 **GPU** | elige una de las tarjetas gráficas del PC (solo aparece si el PC tiene dos o más) | la tarjeta y si es integrada o dedicada; el clic hace que tus apps la usen |
@@ -266,6 +268,8 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 **Rickroll.** Haz clic en la rueda en este modo: la pantalla se oscurece, rayos dorados y destellos la llenan de luz celestial, aparece la letra y, con un destello blanco cegador, tu navegador predeterminado abre un famoso videoclip de 1987 y lo pone a **pantalla completa** (pulsa `K` si la reproducción automática estaba bloqueada y luego `F`, así que necesita una página de YouTube; pulsa `Esc` para salir). Para cambiar el vídeo, edita `RICKROLL_URL` al principio del archivo `asus-dial`.
 
 **IA.** Gira para elegir el nivel (*Bajo* en verde, *Medio* en amarillo, *Alto* en rojo, *MAX* con letras arcoíris) y haz clic para abrir la app **ASUS Dial AI** con ese modelo; con la app abierta, la rueda sigue cambiando el modelo. Todo corre **en local** (internet solo para las descargas). **MAX** = Llama 3.3 70B ejecutado capa por capa con AirLLM (~140 GB de descarga, **muy lento**). La app es una ventana tipo ChatGPT con chats, **modo voz** con una esfera animada y ajustes para personalizarlo todo. **No hay que instalar nada a mano**: la primera vez la app te dice qué necesita y cuánto pesa, pregunta una vez e instala todo solo para tu usuario (sin sudo): Ollama, y para MAX y la voz un Python privado con AirLLM, PyTorch, Whisper y Piper.
+
+**Modelo propio.** Después de *MAX* hay un quinto nivel, **Propio**: usa el modelo que quieras a través de Ollama. La primera vez que lo eliges la app te pide el nombre (`qwen3:8b`, `gemma3:4b`, `hf.co/usuario/repo:Q4_K_M`), o puedes elegir uno que ya tengas; se cambia cuando quieras en *Ajustes → Chat*. Si falta, la app te pregunta y lo descarga la primera vez que le escribes.
 
 
 **La IA controla el PC.** En el chat y en el modo voz puedes pedir lo que hace la rueda: *"baja el brillo y zoom del 50%"*, *"volumen a 30"*, *"pestaña siguiente"*, *"temporizador de 10 minutos"*, *"luz nocturna"*, *"tira un dado"*, *"bloquea la pantalla"*... (italiano, inglés y español). Los comandos habituales los entiende la propia app y se ejecutan al instante; para el resto el modelo conoce las mismas funciones. La app habla con el controlador por el socket `$XDG_RUNTIME_DIR/asus-dial.sock`. Se desactiva en los ajustes de la app. Apagar y reiniciar no están disponibles a propósito.
@@ -287,7 +291,7 @@ El mismo programa funciona en los dos escritorios y averigua solo en cuál está
 | Luz nocturna | gsettings, horario «todo el día» | Luz nocturna de KWin (`kwinrc`, modo *Siempre activa*) |
 | Zoom de pantalla | lupa de GNOME | efecto **Zoom** de KWin |
 | Qué ventana tiene el foco (modos del navegador, Rickroll) | `xprop`: solo ventanas X11 | un pequeño **script de KWin** que se lo dice al dial por D-Bus: todas las ventanas, **también en Wayland** |
-| Menú y mensajes en pantalla | ventana X11, escalada por GNOME | ventana X11 (XWayland) escalada con `GDK_SCALE` según la escala de Plasma |
+| Menú y mensajes en pantalla | ventana X11, escalada por GNOME | ventana X11 (XWayland) escalada con `GDK_SCALE` según la escala de Plasma; desenfoque real de KWin detrás si el tema usa desenfoque |
 
 Así, en Plasma los modos del navegador (*Pestañas*, *Buscar*) y el zoom de la página saben exactamente cuándo el navegador tiene el foco, también en Wayland. No se cambia nada de Plasma para siempre: la luz nocturna vuelve a tu modo al apagarla y el script de KWin solo está cargado mientras el dial funciona.
 
@@ -313,7 +317,7 @@ En **Arch / CachyOS / Manjaro** (con GNOME o KDE Plasma):
 sudo pacman -S --needed python-gobject python-cairo gtk3 wireplumber xorg-xprop xorg-xrdb libpulse xdg-utils curl zstd python-pillow
 ```
 
-En KDE Plasma, `kreadconfig6`/`kwriteconfig6` (luz nocturna, paso del zoom) vienen con Plasma, y `xrdb` le dice al dial la escala de la pantalla.
+En KDE Plasma, `kreadconfig6`/`kwriteconfig6` (luz nocturna, paso del zoom) vienen con Plasma, y `kscreen-doctor` le dice al dial la escala de la pantalla.
 
 ### 2. Permisos (una sola vez)
 
@@ -369,7 +373,7 @@ Abre **ASUS Dial Manager** desde el menú de aplicaciones (o ejecuta `asus-dial-
 
 - **Pestaña Modos:** marca o desmarca cualquier modo integrado para mostrarlo u ocultarlo en el menú circular, cambia el orden con *Subir / Bajar* y usa *Restaurar valores* para recuperar todo (tus modos personalizados se conservan).
 - **Modos personalizados:** *Añadir modo personalizado…* crea un modo con un **nombre**, un **icono** (cualquier emoji) y hasta tres acciones hechas de teclas: **clic**, **girar a la derecha** y **girar a la izquierda**. Ejemplos: `p` (pulsa la tecla P), `ctrl+shift+t` o una serie como `ctrl+c ctrl+v`. Con **Grabar** pulsas las teclas en tu teclado y rellena el campo por ti. Los modos personalizados aparecen en el menú circular junto a los demás (que se agranda si tienes muchos).
-- **Pestaña Aspecto:** cómo se ven el menú circular y los mensajes en pantalla, con una vista previa en vivo dibujada por el mismo código que la rueda. Elige un **preajuste** (Predeterminado, Cristal, Neón, Arcoíris ✨, Atardecer, Papel, Halloween 🎃, **Navidad 🎄**, Negro OLED, Bosque, Medianoche, Océano, Sakura, Brasa) y ajusta lo que quieras: **fondo** (color liso con opacidad, una **imagen recortada** tuya, un **arcoíris** que gira con destellos o la escena de **Halloween 🎃** con fantasmas, tumbas, un esqueleto bailando, calabazas, murciélagos, una araña y telarañas), **desenfoque** (cristal esmerilado: una captura desenfocada de lo que hay detrás del menú, tomada al abrirlo), colores de la porción elegida y del texto, **luminiscencia**, **reflejo brillante**, **sombra** y **destellos**.
+- **Pestaña Aspecto:** cómo se ven el menú circular y los mensajes en pantalla, con una vista previa en vivo dibujada por el mismo código que la rueda. Elige un **preajuste** (Predeterminado, Cristal, Neón, Arcoíris ✨, Atardecer, Papel, Halloween 🎃, **Navidad 🎄**, **Plasma 💠**, Negro OLED, Bosque, Medianoche, Océano, Sakura, Brasa) y ajusta lo que quieras: **fondo** (color liso con opacidad, una **imagen recortada** tuya, un **arcoíris** que gira con destellos o la escena de **Halloween 🎃** con fantasmas, tumbas, un esqueleto bailando, calabazas, murciélagos, una araña y telarañas), **desenfoque** (cristal esmerilado: una captura desenfocada de lo que hay detrás del menú, tomada al abrirlo), colores de la porción elegida y del texto, **luminiscencia**, **reflejo brillante**, **sombra** y **destellos**. **Plasma 💠** imita Breeze de KDE: en Plasma el menú y los mensajes son **cristal esmerilado de verdad** (KWin desenfoca lo que hay detrás, como en los paneles de Plasma, también mientras aparecen con zoom), con **iconos Breeze** en lugar de emoji, el modo elegido en grande en el centro y mensajes con el diseño del OSD de Plasma (icono, texto, barra fina). Toma los colores y el color de acento del escritorio: *Estilo Plasma* sigue solo el aspecto claro u oscuro del sistema (cambia en cuanto cambias el escritorio), o se queda en *Claro* u *Oscuro* si lo eliges. También funciona en GNOME (claro/oscuro y acento desde el portal del escritorio).
 - **Pestaña Animaciones:** el menú y los mensajes en pantalla **aparecen y desaparecen con fluidez**. Elige el **efecto** al aparecer y al desaparecer (ninguno, fundido, zoom, subir deslizando, rebote, giro o *abanico*, un barrido tipo reloj), cuánto dura cada uno (0–800 ms; 0 = al instante), la **curva de movimiento** (suave, lineal, con rebasamiento, elástica, con rebotes), si el resaltado **se desliza** de una porción a la siguiente, y la transición al cambiar de pestaña en esta app (fundido cruzado, deslizar, cubrir, descubrir…) o desactivar las animaciones de la app. Una vista previa en bucle muestra tus elecciones.
 - **Pestaña General:** idioma de la rueda y de la app, y todo lo de la **bienvenida** (ver abajo), con vista previa en vivo.
 
@@ -449,7 +453,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | Modalità | Ruotare | Clic |
 |---|---|---|
 | ↕ **Scorri** | scorre la pagina | clic centrale |
-| 🔊 **Volume** | volume | muto |
+| 🔊 **Volume** | volume | clic: muto; **doppio clic: boost**, l'audio sale al 150% e la manopola può restare sopra il 100% (altro doppio clic per tornare indietro) |
 | ☀ **Luminosità** | luminosità dello schermo | – |
 | ⌨ **Tastiera** | retroilluminazione tastiera (livelli 0–3) | spegne / riaccende |
 | 🌙 **Luce** | luce notturna (1700–4700 K), si accende da sola | accende / spegne |
@@ -463,7 +467,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | ↔ **Frecce** | tasti freccia sinistra / destra | Invio |
 | 🎲 **Dado** | sceglie il dado (d4…d20) | tira, con animazione |
 | 🏠 **Casa** | inclina un'immagine (vedi sotto) | – |
-| 🤖 **AI** | sceglie il livello: Basso (MiniCPM5-2B), Medio (Llama 3.1 8B), Alto (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B con AirLLM, arcobaleno) | animazione di un robot, poi si apre l'app **ASUS Dial AI** con quel modello |
+| 🤖 **AI** | sceglie il livello: Basso (MiniCPM5-2B), Medio (Llama 3.1 8B), Alto (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B con AirLLM, arcobaleno), **Custom** (il modello di Ollama che scegli tu) | animazione di un robot, poi si apre l'app **ASUS Dial AI** con quel modello |
 | ✨ **Rickroll** | – | uno spettacolo di luce divina, poi il browser predefinito apre il video a schermo intero |
 | 🌐 **Lingua** | passa da English → Español → Italiano (predefinita: English) | mostra la lingua attuale |
 | 🎮 **GPU** | sceglie una delle schede grafiche del PC (compare solo se il PC ne ha due o più) | la scheda e se è integrata o dedicata; il clic fa usare quella alle tue app |
@@ -477,6 +481,8 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 **Rickroll.** Clicca la manopola in questa modalità: lo schermo si oscura, raggi dorati e scintille lo riempiono di luce divina, compare il testo della canzone e, con un lampo bianco accecante, il browser predefinito apre un famoso video musicale del 1987 e lo mette a **schermo intero** (preme `K` se la riproduzione automatica era bloccata, poi `F`, quindi serve una pagina di YouTube; premi `Esc` per uscire). Per cambiare il video modifica `RICKROLL_URL` in cima al file `asus-dial`.
 
 **AI.** Ruota per scegliere il livello (*Basso* in verde, *Medio* in giallo, *Alto* in rosso, *MAX* con le lettere arcobaleno) e clicca per aprire l'app **ASUS Dial AI** con quel modello; con l'app aperta la rotella continua a cambiare modello. Tutto gira **in locale** (internet serve solo per i download). *Basso* = MiniCPM5-2B (1,6 GB), *Medio* = Llama 3.1 8B (4,9 GB), *Alto* = DeepSeek-R1-Distill-Qwen-14B (9 GB, ragiona prima di rispondere), **MAX** = Llama 3.3 70B eseguito strato per strato con [AirLLM](https://github.com/lyogavin/airllm) (circa 140 GB da scaricare, poi ~40 GB su disco, e **lentissimo**). L'app (`asus-dial-ai-app`) è una finestra stile ChatGPT: chat nella barra laterale, risposte in streaming, blocchi di codice con tasto copia, il ragionamento del modello in un riquadro richiudibile, la **modalità vocale** con una sfera animata (parli tu, risponde a voce; clicca la sfera per interromperla; qui il ragionamento del modello è disattivato per rispondere prima), **10 voci preimpostate** (Aurora, Marco, Nova, Atlas, Pixel, Robo, Whisper, Narratore, Gigante, Eco) con cursori per velocità, tono, volume ed espressività, e un tasto altoparlante per sentire a voce anche le risposte della chat normale e le **impostazioni** per cambiare tema, colore, dimensione del testo, sfondo, sfera, animazioni, istruzioni di sistema, creatività, lingua della voce e altro. **Non devi installare niente a mano**: la prima volta che usi una cosa l'app ti dice cosa serve e quanto pesa, chiede una volta sola e poi installa tutto solo per il tuo utente (senza sudo): Ollama in `~/.local/ollama`; per MAX e la voce un Python 3.12 privato in `~/.local/share/asus-dial-ai/venv` con AirLLM, PyTorch, Whisper (voce→testo) e Piper (testo→voce), ottenuto con [uv](https://github.com/astral-sh/uv) (checksum verificato). Senza un driver GPU funzionante tutto gira sul processore, molto più lento. Su un portatile ibrido NVIDIA con la GPU spenta, `sudo prime-select on-demand` e un riavvio la attivano.
+
+**Modello custom.** Dopo *MAX* c'è un quinto livello, **Custom**: usa il modello che vuoi tramite Ollama. La prima volta che lo scegli l'app ti chiede il nome (`qwen3:8b`, `gemma3:4b`, `hf.co/utente/repo:Q4_K_M`), oppure puoi sceglierne uno che hai già; si cambia quando vuoi in *Impostazioni → Chat*. Se manca, l'app te lo chiede e lo scarica la prima volta che le scrivi.
 
 
 **L'AI controlla il PC.** In chat e in modalità vocale puoi chiedere quello che fa la rotella: *"abbassa la luminosità e zoomma del 50%"*, *"volume a 30"*, *"scheda successiva"*, *"timer di 10 minuti"*, *"accendi la luce notturna"*, *"tira un dado"*, *"blocca lo schermo"*... (italiano, inglese e spagnolo). I comandi comuni li capisce l'app da sola e li esegue subito; per le altre richieste il modello conosce le stesse funzioni. L'app parla col driver tramite il socket `$XDG_RUNTIME_DIR/asus-dial.sock`. Si disattiva nelle impostazioni dell'app. Spegnimento e riavvio non sono disponibili di proposito.
@@ -498,7 +504,7 @@ Lo stesso programma funziona su entrambi i desktop e capisce da solo su quale si
 | Luce notturna | gsettings, orario «tutto il giorno» | Luce notturna di KWin (`kwinrc`, modalità *Sempre attiva*) |
 | Zoom dello schermo | lente di GNOME | effetto **Zoom** di KWin |
 | Quale finestra ha il focus (modalità del browser, Rickroll) | `xprop`: solo finestre X11 | un piccolo **script di KWin** che lo dice al dial via D-Bus: tutte le finestre, **anche su Wayland** |
-| Menu e messaggi a schermo | finestra X11, scalata da GNOME | finestra X11 (XWayland) scalata con `GDK_SCALE` secondo la scala di Plasma |
+| Menu e messaggi a schermo | finestra X11, scalata da GNOME | finestra X11 (XWayland) scalata con `GDK_SCALE` secondo la scala di Plasma; vera sfocatura di KWin dietro se il tema la usa |
 
 Così su Plasma le modalità del browser (*Schede*, *Trova*) e lo zoom della pagina sanno esattamente quando il browser ha il focus, anche su Wayland. Nelle impostazioni di Plasma non cambia niente per sempre: la luce notturna torna alla tua modalità quando la spegni e lo script di KWin è caricato solo finché il dial è in funzione.
 
@@ -524,7 +530,7 @@ Su **Arch / CachyOS / Manjaro** (con GNOME o KDE Plasma):
 sudo pacman -S --needed python-gobject python-cairo gtk3 wireplumber xorg-xprop xorg-xrdb libpulse xdg-utils curl zstd python-pillow
 ```
 
-Su KDE Plasma `kreadconfig6`/`kwriteconfig6` (luce notturna, passo dello zoom) arrivano con Plasma, e `xrdb` dice al dial la scala dello schermo.
+Su KDE Plasma `kreadconfig6`/`kwriteconfig6` (luce notturna, passo dello zoom) arrivano con Plasma, e `kscreen-doctor` dice al dial la scala dello schermo.
 
 ### 2. Permessi (una volta sola)
 
@@ -580,7 +586,7 @@ Apri **ASUS Dial Manager** dal menu delle applicazioni (oppure esegui `asus-dial
 
 - **Scheda Modalità:** spunta o togli la spunta a qualsiasi modalità predefinita per mostrarla o nasconderla nel menu circolare, cambia l'ordine con *Su / Giù* e usa *Ripristina predefiniti* per rimettere tutto (le tue modalità personalizzate restano).
 - **Modalità personalizzate:** *Aggiungi modalità personalizzata…* crea una modalità con un **nome**, un'**icona** (qualsiasi emoji) e fino a tre azioni fatte di tasti: **clic**, **ruota a destra** e **ruota a sinistra**. Esempi: `p` (preme il tasto P), `ctrl+shift+t`, oppure una serie come `ctrl+c ctrl+v`. Con **Registra** premi i tasti sulla tastiera e il campo si compila da solo. Le modalità personalizzate compaiono nel menu circolare insieme alle altre (che si allarga se sono tante).
-- **Scheda Aspetto:** come appaiono il menu circolare e i messaggi a schermo, con un'anteprima in diretta disegnata dallo stesso codice della manopola. Scegli un **preset** (Predefinito, Vetro, Neon, Arcobaleno ✨, Tramonto, Carta, Halloween 🎃, **Natale 🎄**, Nero OLED, Foresta, Mezzanotte, Oceano, Sakura, Brace) e regola quello che vuoi: **sfondo** (colore pieno con opacità, una tua **immagine ritagliata**, un **arcobaleno** che gira con scintille oppure la scena di **Halloween 🎃** con fantasmi, tombe, uno scheletro che balla, zucche, pipistrelli, un ragno e ragnatele), **sfocatura** (vetro smerigliato: una foto sfocata di ciò che c'è dietro il menu, scattata quando si apre), colori della fetta selezionata e del testo, **luminescenza**, **riflesso lucido**, **ombra** e **scintille**.
+- **Scheda Aspetto:** come appaiono il menu circolare e i messaggi a schermo, con un'anteprima in diretta disegnata dallo stesso codice della manopola. Scegli un **preset** (Predefinito, Vetro, Neon, Arcobaleno ✨, Tramonto, Carta, Halloween 🎃, **Natale 🎄**, **Plasma 💠**, Nero OLED, Foresta, Mezzanotte, Oceano, Sakura, Brace) e regola quello che vuoi: **sfondo** (colore pieno con opacità, una tua **immagine ritagliata**, un **arcobaleno** che gira con scintille oppure la scena di **Halloween 🎃** con fantasmi, tombe, uno scheletro che balla, zucche, pipistrelli, un ragno e ragnatele), **sfocatura** (vetro smerigliato: una foto sfocata di ciò che c'è dietro il menu, scattata quando si apre), colori della fetta selezionata e del testo, **luminescenza**, **riflesso lucido**, **ombra** e **scintille**. **Plasma 💠** riprende Breeze di KDE: su Plasma il menu e i messaggi sono **vero vetro smerigliato** (KWin sfoca quello che c'è dietro, come nei pannelli di Plasma, anche mentre compaiono con lo zoom), con le **icone Breeze** al posto delle emoji, la modalità scelta in grande al centro e i messaggi impaginati come l'OSD di Plasma (icona, testo, barra sottile). Prende colori e colore d'accento dal desktop: *Stile Plasma* segue da solo l'aspetto chiaro o scuro del sistema (cambia appena cambi il desktop), oppure resta *Chiaro* o *Scuro* se lo scegli tu. Funziona anche su GNOME (chiaro/scuro e accento dal portale del desktop).
 - **Scheda Animazioni:** il menu e i messaggi a schermo **compaiono e spariscono in modo fluido**. Scegli l'**effetto** per quando compaiono e per quando se ne vanno (nessuno, dissolvenza, zoom, scorrimento verso l'alto, rimbalzo, rotazione oppure *ventaglio*, un'apertura a lancette), quanto dura ciascuno (0–800 ms; 0 = subito), la **curva di movimento** (morbida, lineare, con sorpasso, elastica, a rimbalzi), se l'evidenziazione **scivola** da una fetta all'altra e la transizione quando cambi scheda in questa app (dissolvenza incrociata, scorrimento, sovrapposizione, scopri…) oppure spegnere le animazioni dell'app. Un'anteprima in loop mostra le tue scelte.
 - **Scheda Generale:** lingua della manopola e dell'app, e tutto ciò che riguarda il **benvenuto** (vedi sotto), con anteprima in diretta.
 
