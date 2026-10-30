@@ -46,7 +46,7 @@ MENU_TIMEOUT_MS = 10000
 MENU_SIZE = 560
 HOLD_MS = 350
 PRESS_ROTATE_UNITS = 5  # total travel while pressed that opens the menu (net is noisy under pressure)
-SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE, RICK, AI, GPU, SUSPEND = range(21)
+SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE, RICK, AI, GPU, SUSPEND, PROFILE, TOUCHPAD = range(23)
 ID_TO_TOOL = {i: n for n, i in enumerate(acfg.BUILTIN_IDS)}  # built-in mode id -> tool number (same order as above)
 CUSTOM_BASE = 1000  # custom modes are numbered CUSTOM_BASE + their index in the config
 ICONS, NAMES_L = acfg.ICONS, acfg.NAMES_L
@@ -74,6 +74,11 @@ STR = {
     "power_rotate": ("⏻ Rotate to shut the system down", "⏻ Gira para apagar el sistema", "⏻ Ruota per arrestare il sistema"),
     "power_count": ("⏻ Shutting down in {n} s — click or rotate to cancel", "⏻ Apagado en {n} s — clic o giro para cancelar",
                     "⏻ Arresto tra {n} s — clic o rotazione per annullare"),
+    "profile_power-saver": ("🍃 Power saver", "🍃 Ahorro de energía", "🍃 Risparmio energetico"),
+    "profile_balanced": ("⚖ Balanced", "⚖ Equilibrado", "⚖ Bilanciato"),
+    "profile_performance": ("🚀 Performance", "🚀 Rendimiento", "🚀 Prestazioni"),
+    "profile_na": ("⚡ Power modes not available (power-profiles-daemon)", "⚡ Perfiles de energía no disponibles (power-profiles-daemon)",
+                   "⚡ Profili energetici non disponibili (power-profiles-daemon)"),
     "suspend_hint": ("😴 Click to sleep (3 s, any turn or click cancels)", "😴 Clic para suspender (3 s, cualquier giro o clic cancela)",
                      "😴 Clic per sospendere (3 s, un giro o un clic annulla)"),
     "suspend_count": ("😴 Sleeping in {n} s — click or rotate to cancel", "😴 Suspendiendo en {n} s — clic o giro para cancelar",
@@ -97,6 +102,12 @@ STR = {
     "volume": ("Volume", "Volumen", "Volume"),
     "muted": (" (muted)", " (silenciado)", " (muto)"),
     "boost": (" (boost)", " (boost)", " (boost)"),
+    "boost_on": ("🔊 Boost on: up to 150%", "🔊 Boost activo: hasta 150%", "🔊 Boost attivo: fino a 150%"),
+    "boost_off": ("🔊 Boost off: up to 100%", "🔊 Boost apagado: hasta 100%", "🔊 Boost spento: fino a 100%"),
+    "touchpad_on": ("🖱 Touchpad on", "🖱 Touchpad activado", "🖱 Touchpad attivo"),
+    "touchpad_off": ("🖱 Touchpad off", "🖱 Touchpad desactivado", "🖱 Touchpad disattivato"),
+    "touchpad_na": ("🖱 Touchpad not available", "🖱 Touchpad no disponible", "🖱 Touchpad non disponibile"),
+    "boost_hint": (" · 2 clicks: 150%", " · 2 clics: 150%", " · 2 clic: 150%"),
     "brightness": ("☀ Brightness {b}%", "☀ Brillo {b}%", "☀ Luminosità {b}%"),
     "ai_pick_custom": ("🤖 AI |{lvl}|: {name}  (click to open)", "🤖 IA |{lvl}|: {name}  (clic para abrir)", "🤖 AI |{lvl}|: {name}  (clic per aprire)"),
     "ai_custom_none": ("choose it in the app", "elígelo en la app", "sceglilo nell'app"),
@@ -171,8 +182,8 @@ FOCUS_CACHE_S = 0.3
 MAG_STEP = 0.25  # screen magnifier factor per zoom step
 MAG_MAX = 16.0
 KEYLIGHT_LEVELS = 3  # the ASUS keyboard backlight has levels 0..3
-VOLUME_BOOST_MAX = 1.5  # volume reached with a double click in Volume mode
-VOLUME_DOUBLE_CLICK_MS = 300
+VOLUME_BOOST_MAX = 1.5  # how far the wheel can take the volume once the boost is on (double click in Volume mode)
+VOLUME_DOUBLE_CLICK_MS = 350  # from the end of the first click to the start of the second one
 DICE_SIDES = (4, 6, 8, 10, 12, 20)
 DICE_ROLL_S, DICE_SHOW_S = 1.6, 3.8
 TIMER_MAX = 180  # minutes
@@ -972,7 +983,7 @@ class Overlay(Gtk.Window):
 class Dial:
     # dial units needed per step of each tool; one physical detent is ~8-10 units
     STEP = {SCROLL: 6, VOLUME: 8, BRIGHT: 8, ZOOM: 8, VIDEO: 8, TABS: 8, ARROWS: 8,
-            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8, RICK: 8, AI: 8, GPU: 8, SUSPEND: 8}
+            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8, RICK: 8, AI: 8, GPU: 8, SUSPEND: 8, PROFILE: 16, TOUCHPAD: 8}
 
     def __init__(self, args):
         self.args = args
@@ -1020,7 +1031,7 @@ class Dial:
         self.alarm_proc = None
         self.speed = 1.0
         self.keylight_last = KEYLIGHT_LEVELS
-        self.volume_click_id, self.volume_before = 0, 1.0
+        self.volume_click_id = 0
         self.volume_boost = self.get_volume()[0] > 1.0  # the volume survives a restart, and so does a boost
         self.alt_down, self.alt_id = False, 0
         self.desk = adesk.for_session(self.bus)
@@ -1179,6 +1190,12 @@ class Dial:
             self.confirm_menu()
             self.swallow_release = True
             return
+        if self.volume_click_id:  # second press right after a click in Volume mode: the boost, at once
+            GLib.source_remove(self.volume_click_id)
+            self.volume_click_id = 0
+            self.swallow_release = True
+            self.set_volume_boost(not self.volume_boost)
+            return
         self.hold_id = GLib.timeout_add(HOLD_MS, self.hold_timeout)
 
     def hold_timeout(self):
@@ -1336,6 +1353,10 @@ class Dial:
             self.gpu_step(d)
         elif tool == SUSPEND:
             self.show_label(L("suspend_hint"))
+        elif tool == PROFILE:
+            self.profile_step(d)
+        elif tool == TOUCHPAD:
+            self.show_touchpad()
         elif tool == AI:
             self.ai_level = max(0, min(len(AI_LEVELS) - 1, self.ai_level + d))
             self.save_ai_level()
@@ -1392,6 +1413,10 @@ class Dial:
             self.gpu_click()
         elif tool == SUSPEND:
             self.start_power_countdown(SUSPEND_CMD, SUSPEND_COUNTDOWN_S, "suspend")
+        elif tool == PROFILE:
+            self.profile_step(1, wrap=True)
+        elif tool == TOUCHPAD:
+            self.touchpad_toggle()
         elif tool == KEYLIGHT:
             self.keylight_last = self.keylight_last if self.get_keylight() == 0 else self.get_keylight()
             self.set_keylight(self.keylight_last if self.get_keylight() == 0 else 0)
@@ -1493,18 +1518,13 @@ class Dial:
                 continue
         return False
 
-    # Volume boost: the sound can go above 100%, up to VOLUME_BOOST_MAX (a quick double click on the wheel in Volume mode).
+    # Volume boost: lets the wheel take the sound above 100%, up to VOLUME_BOOST_MAX (a quick double click in Volume mode).
     def volume_limit(self):
         return str(VOLUME_BOOST_MAX) if self.volume_boost else "1.0"
 
     def volume_click(self):
-        """One click mutes; a second one right after it switches the boost instead (so the mute waits for that moment)."""
-        if self.volume_click_id:
-            GLib.source_remove(self.volume_click_id)
-            self.volume_click_id = 0
-            self.set_volume_boost(not self.volume_boost)
-        else:
-            self.volume_click_id = GLib.timeout_add(VOLUME_DOUBLE_CLICK_MS, self.volume_single_click)
+        """One click mutes, but it waits a moment: a second press right after it switches the boost instead (see button_down)."""
+        self.volume_click_id = GLib.timeout_add(VOLUME_DOUBLE_CLICK_MS, self.volume_single_click)
 
     def volume_single_click(self):
         self.volume_click_id = 0
@@ -1513,18 +1533,11 @@ class Dial:
         return False
 
     def set_volume_boost(self, on):
-        """On: the sound jumps to the maximum. Off: back to the level it had (lower, if you turned it down meanwhile)."""
-        sink = "@DEFAULT_AUDIO_SINK@"
-        v, _muted = self.get_volume()
-        if on:
-            self.volume_before = v
-            target = VOLUME_BOOST_MAX
-        else:
-            target = min(v, self.volume_before, 1.0)
+        """Only moves the limit, the volume stays where it is (off: above 100% it comes back to 100%)."""
         self.volume_boost = on
-        subprocess.run(["wpctl", "set-mute", sink, "0"])
-        subprocess.run(["wpctl", "set-volume", "-l", self.volume_limit(), sink, f"{round(target * 100)}%"])
-        self.show_volume()
+        if not on and self.get_volume()[0] > 1.0:
+            subprocess.run(["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "100%"])
+        self.show_label(L("boost_on" if on else "boost_off"))
 
     def get_volume(self):
         try:
@@ -1729,6 +1742,39 @@ class Dial:
             self.show_label(L("gpu_set", name=g["name"]), self.gpu_idx / max(1, len(cards) - 1))
         else:
             self.show_label(L("gpu_failed"))
+
+    # --- power profile: clockwise = faster, counter-clockwise = saves more; a click goes round them ---
+    def profile_step(self, d, wrap=False):
+        have = self.desk.power_profiles()
+        if not have:
+            self.show_label(L("profile_na"))
+            return
+        now = self.desk.power_profile()
+        i = (have.index(now) if now in have else 0) + d
+        i = i % len(have) if wrap else max(0, min(len(have) - 1, i))
+        if have[i] != now:
+            self.desk.set_power_profile(have[i])
+        self.show_profile()
+
+    def show_profile(self):
+        have = self.desk.power_profiles()
+        now = self.desk.power_profile()
+        if now not in have:
+            self.show_label(L("profile_na"))
+            return
+        self.show_label(L("profile_" + now), have.index(now) / max(1, len(have) - 1))
+
+    # --- touchpad: a click switches it on or off ---
+    def touchpad_toggle(self):
+        on = self.desk.touchpad_enabled()
+        if on is None or not self.desk.set_touchpad(not on):
+            self.show_label(L("touchpad_na"))
+            return
+        self.show_touchpad()
+
+    def show_touchpad(self):
+        on = self.desk.touchpad_enabled()
+        self.show_label(L("touchpad_na" if on is None else "touchpad_on" if on else "touchpad_off"))
 
     # --- keyboard backlight ---
     def get_keylight(self):
@@ -1989,8 +2035,8 @@ class Dial:
         elif mode == "set":
             subprocess.run(["wpctl", "set-mute", sink, "0"])
             value = round(max(0, min(VOLUME_BOOST_MAX * 100, self._num(a, "value"))))
-            if value > 100 and not self.volume_boost:
-                self.volume_before, self.volume_boost = self.get_volume()[0], True
+            if value > 100:
+                self.volume_boost = True
             subprocess.run(["wpctl", "set-volume", "-l", self.volume_limit(), sink, f"{value}%"])
         elif mode == "boost":
             self.set_volume_boost(a.get("state", "on") != "off")
@@ -2155,6 +2201,26 @@ class Dial:
         self.gpu_click()
         return {"gpu": pick["name"]}
 
+    def api_power_profile(self, a):
+        """state: power-saver | balanced | performance."""
+        state = a.get("state", "")
+        if state not in self.desk.power_profiles() or not self.desk.set_power_profile(state):
+            raise ValueError("unknown or unavailable power profile")
+        self.show_profile()
+        return {"power_profile": state}
+
+    def api_touchpad(self, a):
+        """state: on | off | toggle."""
+        on = self.desk.touchpad_enabled()
+        if on is None:
+            raise ValueError("no touchpad control")
+        state = a.get("state", "toggle")
+        want = (not on) if state == "toggle" else state == "on"
+        if not self.desk.set_touchpad(want):
+            raise ValueError("no touchpad control")
+        self.show_touchpad()
+        return {"touchpad": want}
+
     def api_suspend(self, _a):
         """Sleep, after the same 3 seconds as the wheel's mode (turning or clicking the wheel cancels it)."""
         self.start_power_countdown(SUSPEND_CMD, SUSPEND_COUNTDOWN_S, "suspend")
@@ -2181,8 +2247,9 @@ class Dial:
     def show_volume(self):
         v, muted = self.get_volume()
         top = VOLUME_BOOST_MAX if self.volume_boost else 1.0
+        at_top = not self.volume_boost and v >= 1.0  # the end of the normal range: say how to go further
         self.show_label(f"{'🔇' if muted else '🔊'} {L('volume')} {round(v * 100)}%" + (L("boost") if self.volume_boost else "") +
-                        (L("muted") if muted else ""), min(1.0, v / top))
+                        (L("muted") if muted else "") + (L("boost_hint") if at_top else ""), min(1.0, v / top))
 
     def show_brightness(self):
         b = self.get_brightness()

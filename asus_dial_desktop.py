@@ -196,6 +196,46 @@ class Desktop:
         except GLib.Error:
             return False
 
+    # --- power profile: power-profiles-daemon, the service behind the slider of Plasma and of GNOME ---
+    PROFILES = ("power-saver", "balanced", "performance")
+    PROFILE_SERVICES = (("org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles"),
+                        ("net.hadess.PowerProfiles", "/net/hadess/PowerProfiles"))  # its name before version 0.20
+
+    def _profile_prop(self, prop):
+        for name, path in self.PROFILE_SERVICES:
+            try:
+                return name, path, self.prop(name, path, name, prop, self.system_bus())
+            except GLib.Error:
+                continue
+        return None, None, None
+
+    def power_profiles(self):
+        """The profiles this PC has, from the most frugal to the fastest ([] without the service)."""
+        _n, _p, have = self._profile_prop("Profiles")
+        names = [p.get("Profile") for p in have or []]
+        return [p for p in self.PROFILES if p in names]
+
+    def power_profile(self):
+        return self._profile_prop("ActiveProfile")[2]
+
+    def set_power_profile(self, profile):
+        name, path, _now = self._profile_prop("ActiveProfile")
+        if not name:
+            return False
+        try:
+            self.call(name, path, "org.freedesktop.DBus.Properties", "Set",
+                      GLib.Variant("(ssv)", (name, "ActiveProfile", GLib.Variant("s", profile))), None, self.system_bus())
+            return True
+        except GLib.Error:
+            return False
+
+    # --- touchpad: True / False, None where the desktop has no such control ---
+    def touchpad_enabled(self):
+        return None
+
+    def set_touchpad(self, on):
+        return False
+
     # --- focused window: X11 windows tell their class and title through xprop ---
     @staticmethod
     def _x_active(prop):
@@ -226,6 +266,7 @@ class GnomeDesktop(Desktop):
         self.color = self._settings("org.gnome.settings-daemon.plugins.color")
         self.mag_apps = self._settings("org.gnome.desktop.a11y.applications")
         self.mag = self._settings("org.gnome.desktop.a11y.magnifier")
+        self.touchpad = self._settings("org.gnome.desktop.peripherals.touchpad")
 
     @staticmethod
     def _settings(schema):
@@ -288,6 +329,16 @@ class GnomeDesktop(Desktop):
             return True
         except GLib.Error:
             return super().set_keylight(fraction)
+
+    def touchpad_enabled(self):
+        return self.touchpad.get_string("send-events") != "disabled" if self.touchpad else None
+
+    def set_touchpad(self, on):
+        if not self.touchpad:
+            return False
+        self.touchpad.set_string("send-events", "enabled" if on else "disabled")
+        Gio.Settings.sync()
+        return True
 
     # --- night light: gnome-settings-daemon's color plugin ---
     def night_available(self):
@@ -399,6 +450,41 @@ class KdeDesktop(Desktop):
         if self.focus is not None:
             return self.focus[1]
         return super().active_title()
+
+    # --- touchpad: KWin's input devices (KWin itself remembers the choice) ---
+    INPUT = "org.kde.KWin.InputDevice"
+
+    def _touchpads(self):
+        try:
+            names = self.prop("org.kde.KWin", "/org/kde/KWin/InputDevice", "org.kde.KWin.InputDeviceManager", "devicesSysNames")
+        except GLib.Error:
+            return []
+        paths = []
+        for n in names:
+            p = f"/org/kde/KWin/InputDevice/{n}"
+            try:
+                if self.prop("org.kde.KWin", p, self.INPUT, "touchpad"):
+                    paths.append(p)
+            except GLib.Error:
+                pass
+        return paths
+
+    def touchpad_enabled(self):
+        paths = self._touchpads()
+        try:
+            return any(self.prop("org.kde.KWin", p, self.INPUT, "enabled") for p in paths) if paths else None
+        except GLib.Error:
+            return None
+
+    def set_touchpad(self, on):
+        paths = self._touchpads()
+        try:
+            for p in paths:
+                self.call("org.kde.KWin", p, "org.freedesktop.DBus.Properties", "Set",
+                          GLib.Variant("(ssv)", (self.INPUT, "enabled", GLib.Variant("b", on))))
+        except GLib.Error:
+            return False
+        return bool(paths)
 
     # --- screen brightness: PowerDevil (Plasma 6.1+ per display, older Plasma one value) ---
     def _display(self):
@@ -557,5 +643,5 @@ class KdeDesktop(Desktop):
 if __name__ == "__main__":  # a quick look at what this session offers: python3 asus_dial_desktop.py
     d = for_session(Gio.bus_get_sync(Gio.BusType.SESSION))
     print(json.dumps({"desktop": d.name, "brightness": d.get_brightness(), "keyboard": d.get_keylight(),
-                      "night_light": d.night_available() and d.night_temperature(), "zoom": d.get_magnifier(),
+                      "night_light": d.night_available() and d.night_temperature(), "zoom": d.get_magnifier(), "power_profile": d.power_profile(),
                       "focus": d.focus_class()}, indent=1))

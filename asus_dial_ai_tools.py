@@ -35,7 +35,7 @@ def call(do, **args):
 PROMPT = """You can control the user's PC through the ASUS Dial. If the user asks for one of these actions, begin your answer with one line per action, \
 written exactly like [[volume {"mode":"set","value":30}]], then say in one short sentence what you did. Use only these tools, never invent others, \
 and use none when the user is just talking.
-- volume {"mode": "set|up|down|mute|unmute|toggle", "value": 0-150}   (above 100 only if asked: it may distort)
+- volume {"mode": "set|up|down|mute|unmute|toggle|boost", "value": 0-150, "state": "on|off"}   (above 100 only if asked: it may distort; boost with state only unlocks or locks the range above 100, the volume stays)
 - brightness {"mode": "set|up|down", "value": 0-100}   (screen brightness; set = absolute, up/down = change by value)
 - zoom {"percent": 150} or {"mode": "in|out|reset"}   (100 = normal; "zoom 50%" means 50% bigger = 150)
 - scroll {"direction": "up|down", "amount": 5}
@@ -50,15 +50,17 @@ and use none when the user is just talking.
 - gpu {"which": "integrated|dedicated|default"}
 - lock {}
 - suspend {}   (put the PC to sleep after 3 seconds)
-- mode {"name": "scroll|volume|brightness|zoom|video|tabs|arrows|dice|timer|speed|night|windows|find|keylight|language|ai|gpu"}   (what the dial wheel does)
+- touchpad {"state": "on|off|toggle"}
+- power_profile {"state": "power-saver|balanced|performance"}   (the energy mode of the PC)
+- mode {"name": "scroll|volume|brightness|zoom|video|tabs|arrows|dice|timer|speed|night|windows|find|keylight|language|ai|gpu|profile|touchpad"}   (what the dial wheel does)
 - status {}   (current volume, brightness, ...)"""
 
-_ACTION_WORDS = re.compile(r"volum|audio|suono|sound|sonido|luminos|bright|brillo|zoom|ingrand|rimpicc|scorri|scroll|scheda|schede|tab\b|pestana|timer|temporizador|"
+_ACTION_WORDS = re.compile(r"touchpad|trackpad|risparmio|ahorro|power saver|prestazion|performance|rendimiento|bilanciat|balanced|equilibrado|volum|audio|suono|sound|sonido|luminos|bright|brillo|zoom|ingrand|rimpicc|scorri|scroll|scheda|schede|tab\b|pestana|timer|temporizador|"
                           r"luce|night|luz|sospen|suspen|stand ?by|dormire|sleep|retroillumin|tastiera|keyboard|teclado|finestra|window|ventana|dado|dice|gpu|scheda video|blocca|lock|"
                           r"pausa|pause|play|riproduc|traccia|canzone|song|track|musica|music|rotella|manopola|dial|rueda|muto|mute|silenz|schermo|screen|pantalla")
 _CALL = re.compile(r"\[\[\s*([a-z_]+)\s*(\{.*?\})?\s*\]\]", re.S)
 TOOL_NAMES = {"volume", "brightness", "zoom", "scroll", "media", "tab", "timer", "night_light", "keyboard_light", "windows", "find",
-              "dice", "gpu", "lock", "suspend", "mode", "status", "language"}
+              "dice", "gpu", "lock", "suspend", "mode", "status", "language", "power_profile", "touchpad"}
 
 
 def maybe_action(text):
@@ -127,6 +129,9 @@ SAY = {
     "night_off": ("Night light off.", "Luz nocturna apagada.", "Luce notturna spenta."),
     "dice": ("You rolled a {result}.", "Ha salido un {result}.", "È uscito {result}."),
     "gpu": ("Apps now use {gpu}.", "Las apps usan ahora {gpu}.", "Le app ora usano {gpu}."),
+    "touchpad_on": ("Touchpad on.", "Touchpad activado.", "Touchpad attivo."),
+    "touchpad_off": ("Touchpad off.", "Touchpad desactivado.", "Touchpad disattivato."),
+    "power_profile": ("Power mode: {power_profile}.", "Modo de energía: {power_profile}.", "Profilo energetico: {power_profile}."),
     "suspend": ("Going to sleep in 3 seconds.", "Me suspendo en 3 segundos.", "Sospendo il PC tra 3 secondi."),
     "lock": ("Screen locked.", "Pantalla bloqueada.", "Schermo bloccato."),
     "mode": ("Dial mode: {dial_mode}.", "Modo de la rueda: {dial_mode}.", "Modalità della rotella: {dial_mode}."),
@@ -150,9 +155,11 @@ def _sentence(name, res, lang):
         return _say("zoom", lang, **res) if res.get("zoom") else _say("zoom_plain", lang)
     if name == "timer":
         return _say("timer", lang, **res) if "minutes" in res else _say("timer_cancel", lang)
+    if name == "touchpad":
+        return _say("touchpad_on" if res.get("touchpad") else "touchpad_off", lang)
     if name == "night_light":
         return _say("night_on" if res.get("night_light") else "night_off", lang)
-    if name in ("brightness", "dice", "gpu", "lock", "suspend", "mode", "status"):
+    if name in ("brightness", "dice", "gpu", "lock", "suspend", "mode", "status", "power_profile"):
         try:
             return _say(name, lang, **res)
         except KeyError:
@@ -306,6 +313,16 @@ def _parse_clause(c, last_dir):
         out.append(("lock", {}))
     if re.search(r"\b(sospendi\w*|sospensione|stand ?by|suspend\w*|suspende\w*|metti a dormire|put (the )?(pc|computer) to sleep|go to sleep)\b", c):
         out.append(("suspend", {}))
+    if re.search(r"\b(touchpad|trackpad)\b", c):
+        off = re.search(r"\b(spegn\w+|disattiv\w+|disabilit\w+|off|disable\w*|desactiv\w+|apaga\w*|togli)\b", c)
+        on = re.search(r"\b(accend\w+|attiv\w+|abilit\w+|riattiv\w+|on|enable\w*|activ\w+|encend\w+)\b", c)
+        out.append(("touchpad", {"state": "off" if off else "on" if on else "toggle"}))
+    if re.search(r"\b(risparmio energetico|ahorro de energia|power sav\w+|battery saver)\b", c):
+        out.append(("power_profile", {"state": "power-saver"}))
+    elif re.search(r"\b(prestazion\w+|performance|rendimiento)\b", c) and re.search(r"\b(modalita|modo|mode|profilo|profile|perfil|metti|attiva|massim\w+|max|set|pon\w*)\b", c):
+        out.append(("power_profile", {"state": "performance"}))
+    elif re.search(r"\b(bilanciat\w+|balanced|equilibrado)\b", c):
+        out.append(("power_profile", {"state": "balanced"}))
     if re.search(r"\b(dado|dice|die|dados?)\b", c) and re.search(r"\b(tira\w*|lancia\w*|roll\w*|throw|lanza\w*)\b", c):
         sides = re.search(r"\b(\d+) (?:facce|lati|sides|caras)\b|\bd(\d+)\b", c)
         out.append(("dice", {"sides": int(next(g for g in sides.groups() if g)) if sides else 6}))

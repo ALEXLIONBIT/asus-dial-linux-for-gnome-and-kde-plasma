@@ -127,6 +127,8 @@ PLASMA_ICONS = {
     "🔎": ("edit-find",), "⌨": ("input-keyboard-brightness", "input-keyboard"), "🌐": ("globe", "preferences-desktop-locale"),
     "✨": ("games-highscores", "starred", "star-shape"), "🤖": ("dialog-messages", "im-user"),
     "🎮": ("preferences-desktop-display-randr", "video-display"), "😴": ("system-suspend",),
+    "🖱": ("input-touchpad", "input-mouse"), "⚡": ("speedometer", "battery-profile-performance"), "🍃": ("battery-profile-powersave", "battery-low"),
+    "⚖": ("battery-profile-balanced", "speedometer"), "🚀": ("battery-profile-performance", "speedometer"),
 }
 _icon_themes, _icons = {}, {}
 

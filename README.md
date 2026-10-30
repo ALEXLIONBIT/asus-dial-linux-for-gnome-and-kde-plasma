@@ -6,7 +6,7 @@
 
 # English
 
-Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with **GNOME** or **KDE Plasma**, with an on-screen radial menu and 19 modes.
+Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with **GNOME** or **KDE Plasma**, with an on-screen radial menu and 23 modes.
 
 The kernel creates no input device for the dial. This program reads the raw data from `hidraw`, turns it into actions (scroll, volume, zoom…) and shows a menu and messages on screen.
 
@@ -27,7 +27,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 | Mode | Rotate | Click |
 |---|---|---|
 | ↕ **Scroll** | scrolls the page | middle click |
-| 🔊 **Volume** | volume | click: mute; **double click: boost**, the sound jumps to 150% and the wheel can stay above 100% (double click again to go back) |
+| 🔊 **Volume** | volume | click: mute; **double click: boost**, it only unlocks the wheel up to 150% and the volume stays where it is (at 100% the message reminds you); double click again to lock it at 100% |
 | ☀ **Brightness** | screen brightness | – |
 | ⌨ **Keyboard** | keyboard backlight (levels 0–3) | off / back on |
 | 🌙 **Night light** | night light (1700–4700 K), turns on by itself | on / off |
@@ -45,6 +45,8 @@ The kernel creates no input device for the dial. This program reads the raw data
 | ✨ **Rickroll** | – | a divine light show, then your default browser opens the video full screen |
 | 🌐 **Language** | cycles English → Español → Italiano (default: English) | shows the current language |
 | 🎮 **GPU** | picks one of the PC's graphics cards (only shown if the PC has two or more) | the card and whether it is integrated or dedicated; click makes your apps use it |
+| ⚡ **Power mode** | power saver ↔ balanced ↔ performance, applied at once | next profile |
+| 🖱 **Touchpad** | — | switches the touchpad on or off |
 | 😴 **Sleep** | — | click starts a 3-second countdown, then the PC suspends; turning or clicking the wheel cancels it |
 | ⏻ **Power off** | keep rotating clockwise to arm a 5-second shutdown countdown | – |
 
@@ -221,7 +223,7 @@ Created by **ALEXLIONBIT** (human, red clothes, curly hair) together with **Clau
 
 # Español
 
-Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con **GNOME** o **KDE Plasma**, con un menú circular en pantalla y 19 modos.
+Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con **GNOME** o **KDE Plasma**, con un menú circular en pantalla y 23 modos.
 
 El kernel no crea ningún dispositivo de entrada para la rueda. Este programa lee los datos en bruto de `hidraw`, los convierte en acciones (desplazar, volumen, zoom…) y muestra un menú y mensajes en pantalla.
 
@@ -240,7 +242,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | Modo | Girar | Clic |
 |---|---|---|
 | ↕ **Desplazar** | desplaza la página | clic central |
-| 🔊 **Volumen** | volumen | clic: silenciar; **doble clic: boost**, el sonido salta al 150 % y la rueda puede seguir por encima del 100 % (otro doble clic para volver) |
+| 🔊 **Volumen** | volumen | clic: silenciar; **doble clic: boost**, solo desbloquea la rueda hasta el 150 % y el volumen se queda donde está (al 100 % el mensaje te lo recuerda); otro doble clic la limita al 100 % |
 | ☀ **Brillo** | brillo de la pantalla | – |
 | ⌨ **Teclado** | retroiluminación del teclado (niveles 0–3) | apaga / vuelve a encender |
 | 🌙 **Luz nocturna** | luz nocturna (1700–4700 K), se enciende sola | enciende / apaga |
@@ -258,6 +260,8 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | ✨ **Rickroll** | – | un espectáculo de luz divina y luego tu navegador predeterminado abre el vídeo a pantalla completa |
 | 🌐 **Idioma** | cambia entre English → Español → Italiano (por defecto: English) | muestra el idioma actual |
 | 🎮 **GPU** | elige una de las tarjetas gráficas del PC (solo aparece si el PC tiene dos o más) | la tarjeta y si es integrada o dedicada; el clic hace que tus apps la usen |
+| ⚡ **Energía** | ahorro ↔ equilibrado ↔ rendimiento, se aplica al momento | perfil siguiente |
+| 🖱 **Touchpad** | — | activa o desactiva el touchpad |
 | 😴 **Suspender** | — | el clic inicia una cuenta atrás de 3 s y el PC se suspende; girar o hacer clic en la rueda la cancela |
 | ⏻ **Apagar** | sigue girando en sentido horario para activar una cuenta atrás de 5 segundos | – |
 
@@ -434,7 +438,7 @@ Creado por **ALEXLIONBIT** (humano, ropa roja, pelo rizado) junto con **Claude**
 
 # Italiano
 
-Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con **GNOME** o **KDE Plasma**, con un menu circolare a schermo e 19 modalità.
+Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con **GNOME** o **KDE Plasma**, con un menu circolare a schermo e 23 modalità.
 
 Il kernel non crea nessun dispositivo di input per la manopola. Questo programma legge i dati grezzi da `hidraw`, li trasforma in azioni (scorrere, volume, zoom…) e mostra un menu e dei messaggi a schermo.
 
@@ -453,7 +457,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | Modalità | Ruotare | Clic |
 |---|---|---|
 | ↕ **Scorri** | scorre la pagina | clic centrale |
-| 🔊 **Volume** | volume | clic: muto; **doppio clic: boost**, l'audio sale al 150% e la manopola può restare sopra il 100% (altro doppio clic per tornare indietro) |
+| 🔊 **Volume** | volume | clic: muto; **doppio clic: boost**, sblocca soltanto la manopola fino al 150% e il volume resta dov'è (al 100% il messaggio te lo ricorda); altro doppio clic per fermarla di nuovo a 100% |
 | ☀ **Luminosità** | luminosità dello schermo | – |
 | ⌨ **Tastiera** | retroilluminazione tastiera (livelli 0–3) | spegne / riaccende |
 | 🌙 **Luce** | luce notturna (1700–4700 K), si accende da sola | accende / spegne |
@@ -471,6 +475,8 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | ✨ **Rickroll** | – | uno spettacolo di luce divina, poi il browser predefinito apre il video a schermo intero |
 | 🌐 **Lingua** | passa da English → Español → Italiano (predefinita: English) | mostra la lingua attuale |
 | 🎮 **GPU** | sceglie una delle schede grafiche del PC (compare solo se il PC ne ha due o più) | la scheda e se è integrata o dedicata; il clic fa usare quella alle tue app |
+| ⚡ **Energia** | risparmio ↔ bilanciato ↔ prestazioni, si applica subito | profilo successivo |
+| 🖱 **Touchpad** | — | attiva o disattiva il touchpad |
 | 😴 **Sospendi** | — | il clic avvia un conto alla rovescia di 3 s e il PC va in sospensione; girare o cliccare la manopola annulla |
 | ⏻ **Arresta** | ruotando a lungo in senso orario spegne il PC dopo un conto alla rovescia di 5 secondi | – |
 
